@@ -1,0 +1,21 @@
+name: "E-commerce Assistant"
+description: "Shopping assistant helping users find and purchase products"
+
+dimensions:
+  - name: "user_intent"
+    description: "What the user is trying to accomplish"
+    values: ["browse", "search", "purchase", "support", "account"]
+  - name: "product_category"
+    description: "Type of product being discussed"
+    values: ["electronics", "clothing", "home", "books", "sports", "beauty"]
+  - name: "query_specificity"
+    description: "How specific or general the query is"
+    values: ["specific_product", "category_browse", "general_inquiry"]
+
+example_queries:
+  - "Show me wireless headphones under $100"
+  - "I'm looking for running shoes in size 10"
+  - "What's your return policy?"
+  - "Track my order #12345"
+  - "Browse men's jackets on sale"
+  - "Compare iPhone vs Samsung Galaxy"

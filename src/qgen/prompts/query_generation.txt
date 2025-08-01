@@ -1,0 +1,16 @@
+Generate {count} realistic user queries for a {domain} application.
+
+Context:
+{tuple_description}
+
+Requirements:
+- Write natural, realistic queries that users might actually enter
+- Each query should reflect the specified context and scenario
+- Keep them conversational and authentic
+- Length: 1-3 sentences typically
+- Make each query distinct but related to the same context
+- Output one query per line
+
+{few_shot_examples}
+
+Based on the context above, generate {count} different realistic user queries:

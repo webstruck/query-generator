@@ -1,0 +1,21 @@
+name: "Mental Health Support Chatbot"
+description: "AI assistant providing mental health support and wellness guidance"
+
+dimensions:
+  - name: "concern_type"
+    description: "Type of mental health concern or topic"
+    values: ["anxiety", "depression", "stress", "relationships", "self_esteem", "sleep"]
+  - name: "urgency_level"
+    description: "How urgent or immediate the user's need for support is"
+    values: ["low", "moderate", "high", "crisis"]
+  - name: "interaction_style"
+    description: "How the user prefers to communicate about their concerns"
+    values: ["direct", "hesitant", "emotional", "clinical", "conversational"]
+
+example_queries:
+  - "I've been feeling really anxious lately and can't seem to calm down"
+  - "Can you help me with some breathing exercises for stress?"
+  - "I'm having trouble sleeping and it's affecting my work"
+  - "My relationship is causing me a lot of emotional pain"
+  - "I feel like I'm not good enough and everyone else is better than me"
+  - "What are some healthy coping strategies for depression?"

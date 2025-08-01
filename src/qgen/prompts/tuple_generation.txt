@@ -1,0 +1,16 @@
+Generate {count} random combinations of dimension values for a {domain} application.
+
+The dimensions are:
+{dimensions_description}
+
+Requirements:
+- Output each tuple in the format: ({dimension_names})
+- Avoid duplicates
+- Vary values across dimensions to create diverse scenarios
+- The goal is to create a comprehensive set of test cases
+
+Example format:
+(feature: property search, persona: first-time buyer, scenario: specific)
+(feature: market analysis, persona: investor, scenario: ambiguous)
+
+Generate {count} unique tuples now:

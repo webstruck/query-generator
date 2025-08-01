@@ -1,0 +1,19 @@
+name: "Customer Support System"
+description: "Support system handling various customer issues and requests"
+
+dimensions:
+  - name: "issue_type"
+    description: "Type of customer issue"
+    values: ["billing", "technical", "account", "product_info", "complaint"]
+  - name: "urgency"
+    description: "How urgent the customer's issue is"
+    values: ["low", "medium", "high", "critical"]
+  - name: "customer_tone"
+    description: "Emotional tone of the customer"
+    values: ["calm", "frustrated", "angry", "confused"]
+
+example_queries:
+  - "My bill is wrong this month, can you help?"
+  - "I can't log into my account and need access immediately"
+  - "Your product broke after 2 days, this is unacceptable!"
+  - "What are the differences between your premium and basic plans?"

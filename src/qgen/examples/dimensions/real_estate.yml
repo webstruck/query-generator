@@ -1,0 +1,19 @@
+name: "Real Estate CRM Assistant"
+description: "Assistant helping real estate agents manage client requests"
+
+dimensions:
+  - name: "feature"
+    description: "What task the user wants to perform"
+    values: ["property search", "market analysis", "scheduling", "email drafting"]
+  - name: "persona" 
+    description: "Type of client"
+    values: ["first-time buyer", "investor", "luxury buyer"]
+  - name: "scenario"
+    description: "How well-formed the query is"
+    values: ["specific", "ambiguous", "out-of-scope"]
+
+example_queries:
+  - "Find 3-bedroom homes under $600k near downtown that allow pets"
+  - "Look up showings for good properties in San Mateo County"
+  - "Schedule viewing for luxury condos this weekend"
+  - "Draft email to investor about market trends in tech corridor"

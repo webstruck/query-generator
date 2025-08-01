@@ -1,0 +1,22 @@
+# Include documentation files
+include README.md
+include LICENSE
+include CHANGELOG.md
+include TROUBLESHOOTING.md
+include CONTRIBUTING.md
+
+# Include all YAML domain templates
+recursive-include src/qgen/examples *.yml
+recursive-include src/qgen/examples *.txt
+
+# Include prompt templates
+recursive-include src/qgen/prompts *.txt
+
+# Exclude test files and temporary directories
+exclude tests/*
+exclude .env
+exclude *.log
+prune .venv
+prune dist
+prune build
+prune *.egg-info

@@ -1,0 +1,21 @@
+name: "Wikipedia Question Answering RAG"
+description: "RAG-based chatbot for answering questions using Wikipedia knowledge"
+
+dimensions:
+  - name: "question_type"
+    description: "Type of question being asked"
+    values: ["factual", "definition", "comparison", "explanation", "historical", "biographical"]
+  - name: "complexity"
+    description: "Complexity level of the question"
+    values: ["simple", "moderate", "complex"]
+  - name: "topic_domain"
+    description: "Subject area or domain of the question"
+    values: ["science", "history", "geography", "culture", "technology", "politics"]
+
+example_queries:
+  - "What is the capital of France?"
+  - "Explain how photosynthesis works"
+  - "Who was Napoleon Bonaparte?"
+  - "Compare democracy and monarchy"
+  - "When did World War II end?"
+  - "What is machine learning?"
