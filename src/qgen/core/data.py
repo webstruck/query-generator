@@ -24,9 +24,6 @@ class DataManager:
         directories = [
             self.data_dir / "tuples",
             self.data_dir / "queries",
-            self.data_dir / "queries" / "raw",
-            self.data_dir / "queries" / "approved", 
-            self.data_dir / "queries" / "final",
             self.data_dir / "exports"
         ]
         
@@ -100,7 +97,7 @@ class DataManager:
         
         Args:
             queries: List of queries to save
-            stage: Stage of queries ('raw', 'approved', 'final')
+            stage: Stage of queries ('generated', 'approved')
             metadata: Optional metadata to include
             
         Returns:
@@ -127,7 +124,7 @@ class DataManager:
         }
         
         # Determine file path
-        file_path = self.data_dir / "queries" / stage / f"queries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        file_path = self.data_dir / "queries" / f"{stage}.json"
         
         # Save to file
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -139,28 +136,19 @@ class DataManager:
         """Load queries from a specific stage.
         
         Args:
-            stage: Stage to load ('raw', 'approved', 'final')
+            stage: Stage to load ('generated', 'approved')
             
         Returns:
             List of loaded queries
         """
-        query_dir = self.data_dir / "queries" / stage
+        file_path = self.data_dir / "queries" / f"{stage}.json"
         
-        if not query_dir.exists():
-            console.print(f"[yellow]⚠️  No {stage} queries directory found at {query_dir}[/yellow]")
+        if not file_path.exists():
+            console.print(f"[yellow]⚠️  No {stage} queries found at {file_path}[/yellow]")
             return []
-        
-        # Find the most recent query file
-        query_files = list(query_dir.glob("*.json"))
-        if not query_files:
-            console.print(f"[yellow]⚠️  No {stage} query files found in {query_dir}[/yellow]")
-            return []
-        
-        # Load from the most recent file
-        latest_file = max(query_files, key=lambda p: p.stat().st_mtime)
         
         try:
-            with open(latest_file, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             queries = []
@@ -177,7 +165,7 @@ class DataManager:
             return queries
             
         except Exception as e:
-            console.print(f"[red]❌ Error loading queries from {latest_file}: {str(e)}[/red]")
+            console.print(f"[red]❌ Error loading queries from {file_path}: {str(e)}[/red]")
             return []
     
     def get_project_status(self) -> Dict[str, Any]:
@@ -202,15 +190,19 @@ class DataManager:
                 except:
                     status["tuples"][stage] = {"count": 0, "error": "invalid file"}
         
-        # Check query directories
-        for stage in ["raw", "approved", "final"]:
-            query_dir = self.data_dir / "queries" / stage
-            if query_dir.exists():
-                query_files = list(query_dir.glob("*.json"))
-                status["queries"][stage] = {
-                    "files": len(query_files),
-                    "latest": max(query_files, key=lambda p: p.stat().st_mtime).name if query_files else None
-                }
+        # Check query files
+        for stage in ["generated", "approved"]:
+            file_path = self.data_dir / "queries" / f"{stage}.json"
+            if file_path.exists():
+                try:
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                    status["queries"][stage] = {
+                        "count": data.get("metadata", {}).get("count", 0),
+                        "timestamp": data.get("metadata", {}).get("timestamp", "unknown")
+                    }
+                except:
+                    status["queries"][stage] = {"count": 0, "error": "invalid file"}
         
         # Check exports
         exports_dir = self.data_dir / "exports"

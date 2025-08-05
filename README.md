@@ -16,7 +16,7 @@ pip install qgen
 Or install from source:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/webstruck/query-generator.git
 cd query-generator
 pip install -e .
 ```

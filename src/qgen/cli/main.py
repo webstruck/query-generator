@@ -16,7 +16,7 @@ from qgen.core.guidance import (
     get_domain_template,
     list_available_domains
 )
-from qgen.core.models import ProjectConfig, Dimension
+from qgen.core.models import ProjectConfig, Dimension, Query
 from qgen.core.generation import generate_tuples as core_generate_tuples
 from qgen.core.data import get_data_manager
 from qgen.cli.review import review_tuples
@@ -82,13 +82,10 @@ def init(
         # Create subdirectories for organized data management
         (data_dir / "tuples").mkdir()
         (data_dir / "queries").mkdir()
-        (data_dir / "queries" / "raw").mkdir()
-        (data_dir / "queries" / "approved").mkdir()
-        (data_dir / "queries" / "final").mkdir()
         (data_dir / "exports").mkdir()
-        
-        console.print("📁 Created organized data directory structure")
-        
+
+        console.print("📁 Created project directory structure")
+
         # Create prompts directory and copy templates
         prompts_dir = project_path / "prompts"
         prompts_dir.mkdir()
@@ -113,8 +110,8 @@ def init(
         console.print(f"1. [cyan]cd {project_name}[/cyan]")
         console.print("2. [cyan]qgen status[/cyan] - See project overview and recommendations")
         console.print("3. Review and customize [yellow]dimensions.yml[/yellow]")
-        console.print("4. [cyan]qgen dimensions validate[/cyan] - Check your dimensions")
-        
+        console.print("4. [cyan]qgen dimensions validate[/cyan] - Sanitize your dimensions")
+
         console.print("\n[bold yellow]💡 Customization Tips:[/bold yellow]")
         console.print("📝 Edit these files in your preferred editor:")
         console.print(f"   • [yellow]dimensions.yml[/yellow] - Define query dimensions")
@@ -472,7 +469,6 @@ def generate_queries(
             raise typer.Exit(1)
         
         # Review queries if requested
-        approved_queries = queries
         if review:
             from qgen.cli.review import review_queries
             approved_queries = review_queries(queries)
@@ -480,11 +476,22 @@ def generate_queries(
             if not approved_queries:
                 console.print("[yellow]⚠️  No queries approved. Exiting without saving.[/yellow]")
                 raise typer.Exit(0)
+        else:
+            # Auto-approve all queries when review is skipped
+            approved_queries = []
+            for query in queries:
+                # Create a copy with approved status
+                approved_query = Query(
+                    tuple_data=query.tuple_data,
+                    generated_text=query.generated_text,
+                    status="approved"
+                )
+                approved_queries.append(approved_query)
         
         # Use DataManager to save queries
-        raw_path = data_manager.save_queries(
+        generated_path = data_manager.save_queries(
             queries, 
-            "raw",
+            "generated",
             {
                 "provider": provider,
                 "queries_per_tuple": queries_per_tuple,
@@ -504,7 +511,7 @@ def generate_queries(
         )
         
         console.print(f"\n✅ Saved queries to organized structure:")
-        console.print(f"   🔄 Raw: {len(queries)} queries → {raw_path}")
+        console.print(f"   🔄 Generated: {len(queries)} queries → {generated_path}")
         console.print(f"   ✅ Approved: {len(approved_queries)} queries → {approved_path}")
         console.print(f"🎯 Next step: Run 'qgen export' to create final dataset")
         
@@ -520,7 +527,7 @@ def generate_queries(
 def export(
     format: str = typer.Option("csv", help="Export format: csv or json"),
     output: Optional[str] = typer.Option(None, help="Output file path (auto-generated if not specified)"),
-    stage: str = typer.Option("approved", help="Stage to export: approved, raw, or final"),
+    stage: str = typer.Option("approved", help="Stage to export: approved or generated"),
     show_summary: bool = typer.Option(True, help="Show export summary statistics")
 ):
     """Export generated queries to file."""
@@ -544,9 +551,9 @@ def export(
             raise typer.Exit(1)
         
         # Validate stage
-        if stage not in ["approved", "raw", "final"]:
+        if stage not in ["approved", "generated"]:
             console.print(f"[red]❌ Unsupported stage: {stage}[/red]")
-            console.print("Supported stages: approved, raw, final")
+            console.print("Supported stages: approved, generated")
             raise typer.Exit(1)
         
         # Check if queries exist for the specified stage
@@ -640,8 +647,8 @@ def status():
         if queries_status:
             console.print("💬 Queries:")
             for stage, info in queries_status.items():
-                if isinstance(info, dict) and "files" in info:
-                    console.print(f"   {stage}: {info['files']} files")
+                if isinstance(info, dict) and "count" in info:
+                    console.print(f"   {stage}: {info['count']} items")
         else:
             console.print("💬 Queries: No data yet")
         

@@ -16,3 +16,5 @@ pytest.ini
 TESTING.md
 tox.ini
 TROUBLESHOOTING.md
+recipe_bot/
+my_recipe_bot/

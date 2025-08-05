@@ -103,7 +103,7 @@ def export_dataset(
         project_path: Path to the project directory
         format_type: Export format ('csv' or 'json')
         output_path: Custom output path (optional)
-        stage: Which stage of queries to export ('approved', 'raw', 'final')
+        stage: Which stage of queries to export ('approved', 'generated')
     
     Returns:
         Path to the exported file
