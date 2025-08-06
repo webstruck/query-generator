@@ -86,6 +86,13 @@ def get_openai_config() -> dict:
     }
 
 
+def get_github_models_config() -> dict:
+    """Get GitHub Models configuration from environment variables."""
+    return {
+        "api_key": os.getenv("GITHUB_TOKEN"),
+    }
+
+
 def has_azure_openai_config() -> bool:
     """Check if Azure OpenAI configuration is available."""
     config = get_azure_openai_config()
@@ -95,6 +102,12 @@ def has_azure_openai_config() -> bool:
 def has_openai_config() -> bool:
     """Check if OpenAI configuration is available."""
     config = get_openai_config()
+    return bool(config["api_key"])
+
+
+def has_github_models_config() -> bool:
+    """Check if GitHub Models configuration is available."""
+    config = get_github_models_config()
     return bool(config["api_key"])
 
 
@@ -108,6 +121,9 @@ def get_available_providers() -> list[str]:
     if has_azure_openai_config():
         providers.append("azure")
     
+    if has_github_models_config():
+        providers.append("github")
+    
     return providers
 
 
@@ -117,5 +133,7 @@ def auto_detect_provider() -> Optional[str]:
         return "azure"
     elif has_openai_config():
         return "openai"
+    elif has_github_models_config():
+        return "github"
     else:
         return None

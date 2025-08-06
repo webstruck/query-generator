@@ -134,6 +134,8 @@ def generate_tuples(config: ProjectConfig, count: int, provider_type: str = "ope
     try:
         if provider_type == "azure":
             llm = create_llm_provider("azure")
+        elif provider_type == "github":
+            llm = create_llm_provider("github")
         else:
             llm = create_llm_provider("openai", api_key=config.api_key)
     except Exception as e:
@@ -183,6 +185,8 @@ def generate_queries(config: ProjectConfig, tuples: List[Tuple], queries_per_tup
     try:
         if provider_type == "azure":
             llm = create_llm_provider("azure")
+        elif provider_type == "github":
+            llm = create_llm_provider("github")
         else:
             llm = create_llm_provider("openai", api_key=config.api_key)
     except Exception as e:

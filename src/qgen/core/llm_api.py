@@ -141,11 +141,69 @@ class AzureOpenAIProvider(LLMProvider):
             raise RuntimeError(f"Unexpected error calling Azure OpenAI API: {str(e)}")
 
 
+class GitHubModelsProvider(LLMProvider):
+    """GitHub Models API provider implementation."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize GitHub Models provider."""
+        self.api_key = api_key or os.getenv("GITHUB_TOKEN")
+        if not self.api_key:
+            raise ValueError(
+                "GitHub token not found. Set GITHUB_TOKEN environment variable or provide api_key parameter."
+            )
+        
+        self.client = openai.OpenAI(
+            base_url="https://models.github.ai/inference",
+            api_key=self.api_key
+        )
+    
+    def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text using GitHub Models API."""
+        # Default parameters
+        params = {
+            "model": "openai/gpt-4o",  # Default to GPT-4o via GitHub Models
+            "temperature": 0.7,
+            "max_tokens": 500,
+            "top_p": 1.0,
+        }
+        
+        # Override with provided parameters
+        params.update(kwargs)
+        
+        try:
+            response = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                **params
+            )
+            
+            generated_text = response.choices[0].message.content
+            if not generated_text:
+                raise ValueError("Empty response from GitHub Models API")
+            
+            return generated_text.strip()
+            
+        except openai.AuthenticationError:
+            raise ValueError("Invalid GitHub token or insufficient permissions. Please check your GitHub token has models:read scope.")
+        except openai.RateLimitError:
+            raise RuntimeError("GitHub Models API rate limit exceeded. Please try again later.")
+        except openai.APIError as e:
+            raise RuntimeError(f"GitHub Models API error: {str(e)}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error calling GitHub Models API: {str(e)}")
+
+
 def create_llm_provider(provider_type: str = "openai", **kwargs) -> LLMProvider:
     """Factory function to create LLM providers."""
     if provider_type.lower() == "openai":
         return OpenAIProvider(**kwargs)
     elif provider_type.lower() == "azure":
         return AzureOpenAIProvider(**kwargs)
+    elif provider_type.lower() == "github":
+        return GitHubModelsProvider(**kwargs)
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider_type}")
+        raise ValueError(f"Unsupported LLM provider: {provider_type}. Supported providers: openai, azure, github")

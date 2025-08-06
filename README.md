@@ -13,11 +13,16 @@
 pip install qgen
 ```
 
-Or install from source:
+Or install from source (recommended for development):
 
 ```bash
 git clone https://github.com/webstruck/query-generator.git
 cd query-generator
+
+# Using uv (recommended - faster)
+uv pip install -e .
+
+# Or using pip
 pip install -e .
 ```
 
@@ -49,9 +54,10 @@ That's it! You now have a dataset of synthetic queries ready for your AI project
 
 - **🔧 Domain Templates**: Pre-built templates for common use cases (customer support, e-commerce, Q&A, etc.)
 - **📊 Systematic Generation**: Two-stage process ensures comprehensive coverage
-- **🎨 Interactive Review**: Review and approve generated content before finalizing
+- **🎨 Interactive Review**: Review and approve generated content with single-letter shortcuts (a/r/e/s/q)
+- **⏸️ Resume Review**: Standalone review commands for interrupted workflows
 - **📤 Multiple Export Formats**: CSV and JSON export with rich metadata
-- **🔌 LLM Integration**: Works with OpenAI and Azure OpenAI
+- **🔌 LLM Integration**: Works with OpenAI, Azure OpenAI, and GitHub Models and extendable to other providers
 - **🎛️ Fully Configurable**: Customize dimensions, prompts, and generation parameters
 
 ## 📋 Available Domain Templates
@@ -79,6 +85,13 @@ That's it! You now have a dataset of synthetic queries ready for your AI project
 
 This approach ensures systematic coverage while maintaining query naturalness.
 
+### Interactive Review System
+The review interface provides fast, keyboard-driven workflow:
+- **Single-letter shortcuts**: `a` (approve), `r` (reject), `e` (edit), `s` (skip), `q` (quit)
+- **Resume capability**: Exit and resume review sessions anytime
+- **Rich visual feedback**: Beautiful panels show approval rates and progress
+- **Flexible workflow**: Generate in batches, review when convenient
+
 ## 📖 Usage Guide
 
 ### Project Management
@@ -98,13 +111,28 @@ qgen dimensions validate
 
 ```bash
 # Generate tuples (dimension combinations)
-qgen generate tuples --count 30 --provider openai
+qgen generate tuples --count 30 --provider github
 
 # Generate queries from tuples  
 qgen generate queries --queries-per-tuple 5
 
 # Export final dataset
 qgen export --format json --stage approved
+```
+
+### Review Workflow
+
+```bash
+# Generate without review (for batch processing)
+qgen generate tuples --count 50 --no-review
+qgen generate queries --queries-per-tuple 3 --no-review
+
+# Review separately when convenient (interactive with shortcuts)
+qgen review tuples      # Review generated tuples with a/r/e/s/q shortcuts
+qgen review queries     # Review generated queries with a/r/e/s/q shortcuts
+
+# Export final dataset
+qgen export --format csv --stage approved
 ```
 
 ### Working with Dimensions
@@ -129,8 +157,8 @@ my-project/
 ├── dimensions.yml          # Your dimension definitions
 ├── data/
 │   ├── tuples/            # generated.json, approved.json
-│   ├── queries/           # raw/, approved/, final/
-│   └── exports/           # Final datasets
+│   ├── queries/           # generated/, approved/
+│   └── exports/           # Final datasets (CSV/JSON)
 └── prompts/               # Customizable LLM templates
 ```
 
@@ -149,6 +177,9 @@ AZURE_OPENAI_API_KEY=your_azure_key
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
 AZURE_OPENAI_API_VERSION=2023-12-01-preview
+
+# Or GitHub Models (free tier available)
+GITHUB_TOKEN=your_github_token_with_models_read_scope
 ```
 
 ### Custom Dimensions
@@ -207,9 +238,8 @@ The template will be automatically available in `qgen init --template your_templ
 
 ```bash
 # Export different stages
-qgen export --stage raw          # All generated queries
-qgen export --stage approved     # Only approved queries
-qgen export --stage final        # Final processed queries
+qgen export --stage generated    # All generated queries
+qgen export --stage approved     # Only approved queries (default)
 
 # Different formats
 qgen export --format csv         # Spreadsheet-friendly
@@ -230,6 +260,11 @@ git clone <repository-url>
 cd query-generator
 python -m venv .venv
 source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
+
+# Using uv (recommended)
+uv pip install -e ".[dev]"
+
+# Or using pip
 pip install -e ".[dev]"
 ```
 
@@ -253,7 +288,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Built with [Typer](https://typer.tiangolo.com/) for the CLI framework
 - Uses [Rich](https://rich.readthedocs.io/) for beautiful terminal output
-- Powered by [OpenAI](https://openai.com/) and [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) APIs
+- Powered by [OpenAI](https://openai.com/), [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service), and [GitHub Models](https://github.com/marketplace/models) APIs
 
 ---
 

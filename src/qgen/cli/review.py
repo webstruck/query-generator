@@ -7,6 +7,7 @@ from rich.prompt import Confirm, Prompt
 from rich.panel import Panel
 
 from qgen.core.models import Tuple, Query
+from qgen.core.rich_output import show_review_start, show_review_summary
 
 console = Console()
 
@@ -17,10 +18,10 @@ def review_tuples(tuples: List[Tuple]) -> List[Tuple]:
         console.print("[yellow]No tuples to review.[/yellow]")
         return []
     
-    console.print(f"\n[bold blue]Reviewing {len(tuples)} generated tuples[/bold blue]")
-    console.print("You can approve, reject, or edit each tuple.\n")
+    show_review_start("tuple", len(tuples))
     
     approved_tuples = []
+    rejected_count = 0
     
     for i, tuple_obj in enumerate(tuples):
         console.print(f"\n[bold]Tuple {i+1}/{len(tuples)}:[/bold]")
@@ -38,19 +39,20 @@ def review_tuples(tuples: List[Tuple]) -> List[Tuple]:
         # Get user decision
         while True:
             choice = Prompt.ask(
-                "\nAction",
-                choices=["approve", "reject", "edit", "skip", "quit"],
-                default="approve"
-            )
+                "\n[bold]Action[/bold] ([green]a[/green]pprove/[red]r[/red]eject/[yellow]e[/yellow]dit/[cyan]s[/cyan]kip/[dim]q[/dim]uit)",
+                default="a"
+            ).lower()
             
-            if choice == "approve":
+            # Normalize single letter shortcuts
+            if choice in ["approve", "a"]:
                 approved_tuples.append(tuple_obj)
                 console.print("[green]✅ Approved[/green]")
                 break
-            elif choice == "reject":
+            elif choice in ["reject", "r"]:
+                rejected_count += 1
                 console.print("[red]❌ Rejected[/red]")
                 break
-            elif choice == "edit":
+            elif choice in ["edit", "e"]:
                 edited_tuple = edit_tuple(tuple_obj)
                 if edited_tuple:
                     approved_tuples.append(edited_tuple)
@@ -58,14 +60,14 @@ def review_tuples(tuples: List[Tuple]) -> List[Tuple]:
                 else:
                     console.print("[yellow]⚠️  Edit cancelled[/yellow]")
                 break
-            elif choice == "skip":
+            elif choice in ["skip", "s"]:
                 console.print("[yellow]⏩ Skipped[/yellow]")
                 break
-            elif choice == "quit":
+            elif choice in ["quit", "q"]:
                 console.print(f"\n[blue]Review stopped. {len(approved_tuples)} tuples approved so far.[/blue]")
                 return approved_tuples
     
-    console.print(f"\n[bold green]Review complete! {len(approved_tuples)} tuples approved out of {len(tuples)}.[/bold green]")
+    show_review_summary("tuple", len(tuples), len(approved_tuples), rejected_count)
     return approved_tuples
 
 
@@ -105,10 +107,10 @@ def review_queries(queries: List[Query]) -> List[Query]:
         console.print("[yellow]No queries to review.[/yellow]")
         return []
     
-    console.print(f"\n[bold blue]Reviewing {len(queries)} generated queries[/bold blue]")
-    console.print("You can approve, reject, or edit each query.\n")
+    show_review_start("query", len(queries))
     
     approved_queries = []
+    rejected_count = 0
     
     for i, query in enumerate(queries):
         console.print(f"\n[bold]Query {i+1}/{len(queries)}:[/bold]")
@@ -130,21 +132,22 @@ def review_queries(queries: List[Query]) -> List[Query]:
         # Get user decision
         while True:
             choice = Prompt.ask(
-                "\nAction",
-                choices=["approve", "reject", "edit", "skip", "quit"],
-                default="approve"
-            )
+                "\n[bold]Action[/bold] ([green]a[/green]pprove/[red]r[/red]eject/[yellow]e[/yellow]dit/[cyan]s[/cyan]kip/[dim]q[/dim]uit)",
+                default="a"
+            ).lower()
             
-            if choice == "approve":
+            # Normalize single letter shortcuts
+            if choice in ["approve", "a"]:
                 query.status = "approved"
                 approved_queries.append(query)
                 console.print("[green]✅ Approved[/green]")
                 break
-            elif choice == "reject":
+            elif choice in ["reject", "r"]:
                 query.status = "rejected"
+                rejected_count += 1
                 console.print("[red]❌ Rejected[/red]")
                 break
-            elif choice == "edit":
+            elif choice in ["edit", "e"]:
                 edited_query = edit_query(query)
                 if edited_query:
                     edited_query.status = "approved"
@@ -153,14 +156,15 @@ def review_queries(queries: List[Query]) -> List[Query]:
                 else:
                     console.print("[yellow]⚠️  Edit cancelled[/yellow]")
                 break
-            elif choice == "skip":
+            elif choice in ["skip", "s"]:
+                query.status = "skipped"
                 console.print("[yellow]⏩ Skipped[/yellow]")
                 break
-            elif choice == "quit":
+            elif choice in ["quit", "q"]:
                 console.print(f"\n[blue]Review stopped. {len(approved_queries)} queries approved so far.[/blue]")
                 return approved_queries
     
-    console.print(f"\n[bold green]Review complete! {len(approved_queries)} queries approved out of {len(queries)}.[/bold green]")
+    show_review_summary("query", len(queries), len(approved_queries), rejected_count)
     return approved_queries
 
 

@@ -4,6 +4,26 @@ import typer
 from pathlib import Path
 from rich.console import Console
 from typing import Optional
+from qgen.core.rich_output import (
+    show_project_init_success, 
+    show_project_status,
+    show_error_panel,
+    show_validation_results,
+    show_generation_summary,
+    show_export_summary,
+    show_generation_start,
+    show_tuples_found,
+    show_prompt_customization_offer,
+    show_file_edit_instruction,
+    show_no_items_generated,
+    create_success_panel,
+    create_action_panel,
+    create_info_panel,
+    create_tip_panel,
+    format_file_path,
+    format_key_value_pairs,
+    format_numbered_list
+)
 
 from qgen.core.env import ensure_environment_loaded, get_available_providers, auto_detect_provider
 
@@ -27,9 +47,11 @@ console = Console()
 # Command groups
 dimensions_app = typer.Typer(help="Manage dimensions")
 generate_app = typer.Typer(help="Generate tuples and queries")
+review_app = typer.Typer(help="Review existing tuples and queries")
 
 app.add_typer(dimensions_app, name="dimensions")
 app.add_typer(generate_app, name="generate")
+app.add_typer(review_app, name="review")
 
 
 @app.command()
@@ -47,14 +69,21 @@ def init(
     # Check if directory already exists
     project_path = Path(project_name)
     if project_path.exists():
-        console.print(f"[red]❌ Directory '{project_name}' already exists[/red]")
+        show_error_panel(
+            "Directory Already Exists", 
+            f"Directory '{project_name}' already exists",
+            ["Choose a different project name", "Remove the existing directory first"]
+        )
         raise typer.Exit(1)
     
     # Validate template
     available_domains = list_available_domains()
     if template not in available_domains:
-        console.print(f"[red]❌ Unknown template: {template}[/red]")
-        console.print(f"Available templates: {', '.join(available_domains)}")
+        show_error_panel(
+            "Unknown Template",
+            f"Template '{template}' not found",
+            [f"Available templates: {', '.join(available_domains)}", "Use qgen init --help to see template options"]
+        )
         raise typer.Exit(1)
     
     try:
@@ -84,44 +113,26 @@ def init(
         (data_dir / "queries").mkdir()
         (data_dir / "exports").mkdir()
 
-        console.print("📁 Created project directory structure")
-
         # Create prompts directory and copy templates
         prompts_dir = project_path / "prompts"
         prompts_dir.mkdir()
         
         # Copy prompt templates from the package
         package_prompts_dir = Path(__file__).parent.parent / "prompts"
+        template_count = 0
         if package_prompts_dir.exists():
             import shutil
             for template_file in package_prompts_dir.glob("*.txt"):
                 shutil.copy2(template_file, prompts_dir / template_file.name)
-            console.print(f"📝 Copied {len(list(package_prompts_dir.glob('*.txt')))} prompt templates")
-        else:
-            console.print("[yellow]⚠️  Prompt templates not found in package[/yellow]")
+                template_count += 1
         
-        console.print(f"✅ Project '{project_name}' created successfully!")
-        console.print(f"📁 Location: {project_path.absolute()}")
-        console.print(f"📋 Template: {template_data['name']}")
-        console.print(f"🔧 Dimensions: {len(dimensions)}")
-        console.print(f"💡 Example queries: {len(template_data['example_queries'])}")
-        
-        console.print("\n[bold green]🎯 Next steps:[/bold green]")
-        console.print(f"1. [cyan]cd {project_name}[/cyan]")
-        console.print("2. [cyan]qgen status[/cyan] - See project overview and recommendations")
-        console.print("3. Review and customize [yellow]dimensions.yml[/yellow]")
-        console.print("4. [cyan]qgen dimensions validate[/cyan] - Sanitize your dimensions")
-
-        console.print("\n[bold yellow]💡 Customization Tips:[/bold yellow]")
-        console.print("📝 Edit these files in your preferred editor:")
-        console.print(f"   • [yellow]dimensions.yml[/yellow] - Define query dimensions")
-        console.print(f"   • [yellow]prompts/tuple_generation.txt[/yellow] - Customize tuple creation")
-        console.print(f"   • [yellow]prompts/query_generation.txt[/yellow] - Customize query generation")
-        
-        console.print("\n[bold blue]🔍 Need help?[/bold blue]")
-        console.print("   • [green]qgen --help[/green] - See all commands")
-        console.print("   • [green]qgen dimensions examples[/green] - See dimension examples")
-        console.print("   • [green]qgen <command> --help[/green] - Command-specific help")
+        # Show beautiful success message using panels
+        show_project_init_success(
+            project_path=project_path,
+            template_name=template_data['name'],
+            dimensions_count=len(dimensions),
+            examples_count=len(template_data['example_queries'])
+        )
         
     except Exception as e:
         console.print(f"[red]❌ Failed to create project: {str(e)}[/red]")
@@ -137,13 +148,14 @@ def init(
 @dimensions_app.command("validate")
 def validate_dimensions_cmd():
     """Validate current project dimensions."""
-    console.print("🔍 Validating dimensions...")
     
     # Validate we're in a project directory
     if not Path("dimensions.yml").exists():
-        console.print("[red]❌ Not in a project directory (no dimensions.yml found)[/red]")
-        console.print("💡 Run [green]qgen init <project_name>[/green] to create a new project")
-        console.print("🔍 Need help? Run [green]qgen --help[/green] for all commands")
+        show_error_panel(
+            "Not in a Project Directory",
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
         raise typer.Exit(1)
     
     try:
@@ -156,41 +168,36 @@ def validate_dimensions_cmd():
         # Quality suggestions
         quality_suggestions = validate_dimension_quality(config.dimensions)
         
-        # Display results
-        console.print(f"📊 Found {len(config.dimensions)} dimensions")
-        console.print(f"💡 Found {len(config.example_queries)} example queries")
+        # Show project overview
+        project_info = format_key_value_pairs({
+            "Dimensions": len(config.dimensions),
+            "Example Queries": len(config.example_queries),
+            "Domain": config.domain
+        })
         
-        if basic_issues:
-            console.print("\n[red]❌ Validation Issues:[/red]")
-            for issue in basic_issues:
-                console.print(f"  • {issue}")
-            
-            # Add specific guidance for common issues
-            if any("No dimensions defined" in issue for issue in basic_issues):
-                console.print("\n[bold yellow]💡 Getting started with dimensions:[/bold yellow]")
-                console.print("   • Run [cyan]qgen dimensions examples[/cyan] to see examples from different domains")
-                console.print("   • Run [cyan]qgen dimensions guide[/cyan] for dimension design principles")
-        else:
-            console.print("\n✅ All dimensions pass basic validation")
+        console.print()
+        console.print(create_info_panel("📊 Project Analysis", project_info))
         
-        if quality_suggestions:
-            console.print("\n[yellow]💡 Quality Suggestions:[/yellow]")
-            for suggestion in quality_suggestions:
-                console.print(f"  • {suggestion}")
+        # Use the existing validation results display function
+        show_validation_results(basic_issues, quality_suggestions)
         
-        # Overall status
+        # Next steps based on validation results
         if not basic_issues and not quality_suggestions:
-            console.print("\n🎉 Dimensions look great! Ready for generation.")
-            console.print("\n[bold green]🎯 Next Steps:[/bold green]")
-            console.print("1. [cyan]qgen generate tuples[/cyan] - Create dimension combinations")
-            console.print("2. Consider customizing [yellow]prompts/[/yellow] files first for better results")
-            console.print("3. Run [green]qgen --help[/green] to see all available commands")
+            next_steps = format_numbered_list([
+                "[cyan]qgen generate tuples[/cyan] - Create dimension combinations",
+                "Consider customizing [yellow]prompts/[/yellow] files first for better results", 
+                "Run [green]qgen --help[/green] to see all available commands"
+            ])
+            console.print(create_action_panel("🎯 Next Steps", next_steps))
         elif not basic_issues:
-            console.print("\n✅ Dimensions are valid but could be improved")
-            console.print("💡 Consider the suggestions above, then run [cyan]qgen generate tuples[/cyan]")
+            console.print(create_action_panel("🎯 Next Steps", 
+                "Consider the suggestions above, then run [cyan]qgen generate tuples[/cyan]"))
         else:
-            console.print("\n❌ Please fix validation issues before proceeding")
-            console.print("🔍 Need help? Run [green]qgen dimensions examples[/green] for inspiration")
+            show_error_panel(
+                "Validation Failed",
+                "Please fix validation issues before proceeding",
+                ["Run qgen dimensions examples for inspiration", "Check qgen dimensions guide for best practices"]
+            )
             raise typer.Exit(1)
             
     except ConfigurationError as e:
@@ -234,11 +241,10 @@ def generate_tuples(
     count: int = typer.Option(20, help="Number of tuples to generate"),
     review: bool = typer.Option(True, help="Launch review interface after generation"),
     output: str = typer.Option("data/tuples/generated.json", help="Output file for generated tuples"),
-    provider: Optional[str] = typer.Option(None, help="LLM provider: openai or azure (auto-detect if not specified)"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, or github (auto-detect if not specified)"),
     skip_guidance: bool = typer.Option(False, help="Skip interactive prompt customization guidance")
 ):
     """Generate tuple combinations from dimensions."""
-    console.print(f"🎲 Generating {count} tuples...")
     
     # Load environment variables
     ensure_environment_loaded(verbose=True)
@@ -248,7 +254,7 @@ def generate_tuples(
         provider = auto_detect_provider()
         if provider is None:
             console.print("[red]❌ No LLM provider configuration found in environment[/red]")
-            console.print("💡 Please set either OpenAI or Azure OpenAI environment variables in .env file")
+            console.print("💡 Please set OpenAI, Azure OpenAI, or GitHub Models environment variables in .env file")
             console.print("🔍 Need help? Run [green]qgen --help[/green] or check project documentation")
             raise typer.Exit(1)
         console.print(f"[blue]🔍 Auto-detected provider: {provider}[/blue]")
@@ -265,14 +271,19 @@ def generate_tuples(
     
     # Validate we're in a project directory
     if not Path("dimensions.yml").exists():
-        console.print("[red]❌ Not in a project directory (no dimensions.yml found)[/red]")
-        console.print("💡 Run [green]qgen init <project_name>[/green] to create a new project")
-        console.print("🔍 Need help? Run [green]qgen --help[/green] for all commands")
+        show_error_panel(
+            "Not in a Project Directory",
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
         raise typer.Exit(1)
     
     try:
         # Load project configuration
         config = load_project_config(".")
+        
+        # Show generation start info
+        show_generation_start("tuple", count, provider)
         
         # Validate dimensions before generation
         validation_issues = validate_dimensions(config.dimensions)
@@ -285,20 +296,26 @@ def generate_tuples(
         
         # Interactive prompt customization guidance (unless skipped)
         if not skip_guidance:
-            console.print("\n[bold blue]💡 Customize prompts for better results?[/bold blue]")
-            console.print("📝 You can edit [cyan]prompts/tuple_generation.txt[/cyan] to:")
-            console.print("   • Tailor the prompt style to your domain")
-            console.print("   • Add specific examples and requirements")
-            console.print("   • Control how dimension combinations are created")
+            # Show tuple-specific customization panel
+            content = (
+                "📝 You can edit [cyan]prompts/tuple_generation.txt[/cyan] to:\n\n"
+                "[bold]Benefits:[/bold]\n"
+                "• Tailor the prompt style to your domain\n"
+                "• Add specific examples and requirements\n"
+                "• Control how dimension combinations are created\n"
+                "• Improve tuple diversity and quality\n\n"
+                "[bold]🔄 Customize prompts first?[/bold] [dim](y/N)[/dim]"
+            )
+            
+            console.print()
+            console.print(create_tip_panel("Prompt Customization", content))
             
             # Ask user if they want to customize first
             try:
-                user_input = input("\n🔄 Customize prompts first? [y/N]: ").strip().lower()
+                user_input = input().strip().lower()
                 if user_input in ['y', 'yes']:
-                    console.print(f"\n📁 Edit this file in your preferred editor:")
-                    console.print(f"   [yellow]prompts/tuple_generation.txt[/yellow]")
-                    input("📋 Press Enter when you're ready to continue...")
-                console.print("")
+                    show_file_edit_instruction("prompts/tuple_generation.txt")
+                    input()
             except (EOFError, KeyboardInterrupt):
                 console.print("\n🚀 Continuing with generation...")
         
@@ -306,9 +323,7 @@ def generate_tuples(
         tuples = core_generate_tuples(config, count, provider)
         
         if not tuples:
-            console.print("[red]❌ No tuples generated. Check your configuration and try again.[/red]")
-            console.print("💡 Try customizing [yellow]prompts/tuple_generation.txt[/yellow] for better results")
-            console.print("🔍 Run [green]qgen dimensions examples[/green] to see working examples")
+            show_no_items_generated("tuple")
             raise typer.Exit(1)
         
         # Review tuples if requested
@@ -354,12 +369,27 @@ def generate_tuples(
                     ensure_ascii=False
                 )
         
-        console.print(f"\n✅ Saved data to organized structure:")
-        console.print(f"   📊 Generated: {len(tuples)} tuples → {generated_path}")
-        console.print(f"   ✅ Approved: {len(approved_tuples)} tuples → {approved_path}")
+        # Show generation summary
+        show_generation_summary("tuple", len(tuples), file_path=Path(generated_path))
+        
+        # Show approval summary if different
+        if len(approved_tuples) != len(tuples):
+            approval_rate = len(approved_tuples) / len(tuples) * 100 if tuples else 0
+            approval_info = f"{len(approved_tuples)} tuples ({approval_rate:.1f}% approval rate)"
+            console.print()
+            console.print(create_success_panel("✅ Approval Complete", 
+                f"Approved: {approval_info}\nSaved to: {format_file_path(Path(approved_path), 60)}"))
+        
+        # Additional output info if custom path
         if output != "data/tuples/generated.json":
-            console.print(f"   📄 Output: {output}")
-        console.print(f"🎯 Next step: Run 'qgen generate queries' to generate queries from approved tuples")
+            console.print()
+            console.print(create_info_panel("📄 Additional Output", 
+                f"Also saved to: {format_file_path(Path(output), 60)}"))
+        
+        # Next steps
+        console.print()
+        console.print(create_action_panel("🎯 Next Steps", 
+            "Run [cyan]qgen generate queries[/cyan] to generate queries from approved tuples"))
         
     except ConfigurationError as e:
         console.print(f"[red]❌ Configuration error: {str(e)}[/red]")
@@ -376,7 +406,7 @@ def generate_queries(
         help="Path to approved tuples file (default: data/tuples/approved.json)"
     ),
     review: bool = typer.Option(True, help="Launch review interface after generation"),
-    provider: Optional[str] = typer.Option(None, help="LLM provider: openai or azure (auto-detect if not specified)"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, or github (auto-detect if not specified)"),
     queries_per_tuple: int = typer.Option(3, help="Number of queries to generate per tuple"),
     skip_guidance: bool = typer.Option(False, help="Skip interactive prompt customization guidance")
 ):
@@ -391,7 +421,7 @@ def generate_queries(
         provider = auto_detect_provider()
         if provider is None:
             console.print("[red]❌ No LLM provider configuration found in environment[/red]")
-            console.print("💡 Please set either OpenAI or Azure OpenAI environment variables in .env file")
+            console.print("💡 Please set OpenAI, Azure OpenAI, or GitHub Models environment variables in .env file")
             console.print("🔍 Need help? Run [green]qgen --help[/green] or check project documentation")
             raise typer.Exit(1)
         console.print(f"[blue]🔍 Auto-detected provider: {provider}[/blue]")
@@ -422,7 +452,7 @@ def generate_queries(
         input_path = Path(input_file)
         if not input_path.exists():
             console.print(f"[red]❌ Input file not found: {input_file}[/red]")
-            console.print("Run 'qgen generate tuples' first to create tuples")
+            console.print("Run 'qgen generate tuples' first to create tuples or 'qgen review tuples' if they exist")
             raise typer.Exit(1)
         
         # Load project configuration
@@ -434,38 +464,33 @@ def generate_queries(
         
         if not tuples:
             console.print(f"[red]❌ No approved tuples found in {input_file}[/red]")
-            console.print("Run 'qgen generate tuples' first to create tuples")
+            console.print("Run 'qgen generate tuples' first to create tuples or 'qgen review tuples' if they exist")
             raise typer.Exit(1)
         
-        console.print(f"📊 Found {len(tuples)} approved tuples")
+        show_tuples_found(len(tuples), input_file)
         
         # Interactive prompt customization guidance (unless skipped)
         if not skip_guidance:
-            console.print("\n[bold blue]💡 Customize prompts for better results?[/bold blue]")
-            console.print("📝 You can edit [cyan]prompts/query_generation.txt[/cyan] to:")
-            console.print("   • Add domain-specific examples")
-            console.print("   • Adjust tone and style for your use case")
-            console.print("   • Control how queries are created from tuples")
+            show_prompt_customization_offer()
             
             # Ask user if they want to customize first
             try:
-                user_input = input("\n🔄 Customize prompts first? [y/N]: ").strip().lower()
+                user_input = input().strip().lower()
                 if user_input in ['y', 'yes']:
-                    console.print(f"\n📁 Edit this file in your preferred editor:")
-                    console.print(f"   [yellow]prompts/query_generation.txt[/yellow]")
-                    input("📋 Press Enter when you're ready to continue...")
-                console.print("")
+                    show_file_edit_instruction("prompts/query_generation.txt")
+                    input()
             except (EOFError, KeyboardInterrupt):
                 console.print("\n🚀 Continuing with generation...")
+        
+        # Show generation start
+        show_generation_start("query", len(tuples) * queries_per_tuple, provider)
         
         # Generate queries using the core generation function
         from qgen.core.generation import generate_queries as core_generate_queries
         queries = core_generate_queries(config, tuples, queries_per_tuple, provider)
         
         if not queries:
-            console.print("[red]❌ No queries generated. Check your configuration and try again.[/red]")
-            console.print("💡 Try customizing [yellow]prompts/query_generation.txt[/yellow] for better results")
-            console.print("🔍 Run [green]qgen dimensions examples[/green] to see working examples")
+            show_no_items_generated("query")
             raise typer.Exit(1)
         
         # Review queries if requested
@@ -510,10 +535,21 @@ def generate_queries(
             }
         )
         
-        console.print(f"\n✅ Saved queries to organized structure:")
-        console.print(f"   🔄 Generated: {len(queries)} queries → {generated_path}")
-        console.print(f"   ✅ Approved: {len(approved_queries)} queries → {approved_path}")
-        console.print(f"🎯 Next step: Run 'qgen export' to create final dataset")
+        # Show generation summary
+        show_generation_summary("query", len(queries), file_path=Path(generated_path))
+        
+        # Show approval summary if different
+        if len(approved_queries) != len(queries):
+            approval_rate = len(approved_queries) / len(queries) * 100 if queries else 0
+            approval_info = f"{len(approved_queries)} queries ({approval_rate:.1f}% approval rate)"
+            console.print()
+            console.print(create_success_panel("✅ Approval Complete", 
+                f"Approved: {approval_info}\nSaved to: {format_file_path(Path(approved_path), 60)}"))
+        
+        # Next steps
+        console.print()
+        console.print(create_action_panel("🎯 Next Steps", 
+            "Run [cyan]qgen export[/cyan] to create final dataset"))
         
     except ConfigurationError as e:
         console.print(f"[red]❌ Configuration error: {str(e)}[/red]")
@@ -531,13 +567,14 @@ def export(
     show_summary: bool = typer.Option(True, help="Show export summary statistics")
 ):
     """Export generated queries to file."""
-    console.print(f"📊 Exporting {stage} queries in {format} format...")
     
     # Validate we're in a project directory
     if not Path("dimensions.yml").exists():
-        console.print("[red]❌ Not in a project directory (no dimensions.yml found)[/red]")
-        console.print("💡 Run [green]qgen init <project_name>[/green] to create a new project")
-        console.print("🔍 Need help? Run [green]qgen --help[/green] for all commands")
+        show_error_panel(
+            "Not in a Project Directory",
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
         raise typer.Exit(1)
     
     try:
@@ -546,14 +583,20 @@ def export(
         
         # Validate format
         if format not in ["csv", "json"]:
-            console.print(f"[red]❌ Unsupported format: {format}[/red]")
-            console.print("Supported formats: csv, json")
+            show_error_panel(
+                "Unsupported Format",
+                f"Format '{format}' is not supported",
+                ["Use 'csv' for spreadsheet compatibility", "Use 'json' for programmatic access", "Supported formats: csv, json"]
+            )
             raise typer.Exit(1)
         
         # Validate stage
         if stage not in ["approved", "generated"]:
-            console.print(f"[red]❌ Unsupported stage: {stage}[/red]")
-            console.print("Supported stages: approved, generated")
+            show_error_panel(
+                "Unsupported Stage",
+                f"Stage '{stage}' is not supported", 
+                ["Use 'approved' for final dataset", "Use 'generated' for all queries", "Supported stages: approved, generated"]
+            )
             raise typer.Exit(1)
         
         # Check if queries exist for the specified stage
@@ -561,31 +604,44 @@ def export(
         queries = data_manager.load_queries(stage)
         
         if not queries:
-            console.print(f"[red]❌ No {stage} queries found to export[/red]")
-            if stage == "approved":
-                console.print("💡 Run [cyan]qgen generate queries[/cyan] first to create queries")
-                console.print("🔍 Need help? Run [green]qgen --help[/green] to see the workflow")
+            suggestions = ["Run qgen generate queries first to create queries", "If queries exist, try: qgen review queries", "Use qgen --help to see the workflow"]
+            if stage == "generated":
+                suggestions = ["Run qgen generate queries to create queries", "If queries exist, try: qgen review queries", "Check if queries exist in approved stage instead"]
+            
+            show_error_panel(
+                f"No {stage.title()} Queries Found",
+                f"No queries available for export at '{stage}' stage",
+                suggestions
+            )
             raise typer.Exit(1)
         
-        # Show summary if requested
+        # Show pre-export summary
         if show_summary:
             summary = get_export_summary(queries)
-            console.print(f"\n[bold blue]📈 Export Summary[/bold blue]")
-            console.print(f"Total queries: {summary['total_queries']}")
-            console.print(f"Unique tuples: {summary['unique_tuples']}")
+            
+            # Prepare summary info
+            summary_info = format_key_value_pairs({
+                "Total Queries": summary['total_queries'],
+                "Unique Tuples": summary['unique_tuples'],
+                "Export Format": format.upper(),
+                "Export Stage": stage
+            })
             
             if summary.get('status_distribution'):
-                console.print("\nStatus distribution:")
+                status_info = "\n\n[bold]Status Distribution:[/bold]\n"
                 for status, count in summary['status_distribution'].items():
-                    console.print(f"  {status}: {count}")
+                    status_info += f"• {status}: {count}\n"
+                summary_info += status_info.rstrip()
+            
+            console.print()
+            console.print(create_info_panel("📈 Export Preview", summary_info))
         
         # Export the dataset
         exported_path = export_dataset(".", format, output, stage)
         
-        console.print(f"\n✅ Successfully exported to: {exported_path}")
-        console.print(f"📊 Format: {format.upper()}")
-        console.print(f"🎯 Stage: {stage}")
-        console.print(f"📄 Queries: {len(queries)}")
+        # Show export success with panels
+        show_export_summary(format, Path(exported_path), len(queries), 
+                          get_export_summary(queries) if show_summary else {})
         
         # Update project status by triggering a refresh
         data_manager.get_project_status()  # This will update exports info
@@ -606,9 +662,11 @@ def status():
     
     # Check if we're in a project directory
     if not Path("dimensions.yml").exists():
-        console.print("[red]❌ Not in a project directory (no dimensions.yml found)[/red]")
-        console.print("💡 Run [green]qgen init <project_name>[/green] to create a new project")
-        console.print("🔍 Need help? Run [green]qgen --help[/green] for all commands")
+        show_error_panel(
+            "Not in a Project Directory",
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
         raise typer.Exit(1)
     
     try:
@@ -623,64 +681,174 @@ def status():
         available_providers = get_available_providers()
         auto_provider = auto_detect_provider()
         
-        console.print("\n[bold blue]📊 Project Status[/bold blue]")
-        console.print(f"🔧 Dimensions: {len(config.dimensions)}")
-        console.print(f"💡 Example queries: {len(config.example_queries)}")
-        console.print(f"🤖 LLM providers: {', '.join(available_providers) if available_providers else 'None configured'}")
-        if auto_provider:
-            console.print(f"🎯 Auto-detected: {auto_provider}")
+        # Prepare data for panel display
+        data_summary = {
+            'tuples_generated': 0,
+            'tuples_approved': 0,
+            'queries_generated': 0,
+            'queries_approved': 0,
+            'exports': 0
+        }
         
-        console.print("\n[bold blue]📁 Data Organization[/bold blue]")
-        
-        # Tuples status
+        # Process tuples data
         tuples_status = project_status.get("tuples", {})
-        if tuples_status:
-            console.print("📊 Tuples:")
-            for stage, info in tuples_status.items():
-                if isinstance(info, dict) and "count" in info:
-                    console.print(f"   {stage}: {info['count']} items")
-        else:
-            console.print("📊 Tuples: No data yet")
+        for stage, info in tuples_status.items():
+            if isinstance(info, dict) and "count" in info:
+                if stage == "generated":
+                    data_summary['tuples_generated'] = info['count']
+                elif stage == "approved":
+                    data_summary['tuples_approved'] = info['count']
         
-        # Queries status  
+        # Process queries data
         queries_status = project_status.get("queries", {})
-        if queries_status:
-            console.print("💬 Queries:")
-            for stage, info in queries_status.items():
-                if isinstance(info, dict) and "count" in info:
-                    console.print(f"   {stage}: {info['count']} items")
-        else:
-            console.print("💬 Queries: No data yet")
+        for stage, info in queries_status.items():
+            if isinstance(info, dict) and "count" in info:
+                if stage == "generated":
+                    data_summary['queries_generated'] = info['count']
+                elif stage == "approved":
+                    data_summary['queries_approved'] = info['count']
         
-        # Exports status
+        # Process exports data
         exports_status = project_status.get("exports", {})
-        if exports_status and exports_status.get("files", 0) > 0:
-            console.print(f"📤 Exports: {exports_status['files']} files")
-        else:
-            console.print("📤 Exports: No data yet")
+        if exports_status:
+            data_summary['exports'] = exports_status.get("files", 0)
         
-        console.print("\n[bold green]🎯 Next Steps:[/bold green]")
+        # Generate recommendations
+        recommendations = []
         if not tuples_status:
-            console.print("1. Generate tuples: qgen generate tuples")
+            recommendations.append("Generate tuples: [cyan]qgen generate tuples[/cyan]")
         elif not queries_status:
-            console.print("1. Generate queries: qgen generate queries")
-        elif not exports_status or exports_status.get("files", 0) == 0:
-            console.print("1. Export dataset: qgen export")
-        else:
-            console.print("✅ Project workflow complete!")
+            recommendations.append("Generate queries: [cyan]qgen generate queries[/cyan]")
+        elif data_summary['exports'] == 0:
+            recommendations.append("Export dataset: [cyan]qgen export[/cyan]")
         
-        # Add recommendations section
-        console.print("\n[bold yellow]💡 Recommendations:[/bold yellow]")
-        console.print("📝 Customize prompts for better results:")
-        console.print(f"   • [cyan]prompts/tuple_generation.txt[/cyan] - Controls dimension combinations")
-        console.print(f"   • [cyan]prompts/query_generation.txt[/cyan] - Controls query generation")
-        console.print("🔍 Need help?")
-        console.print("   • Run [green]qgen --help[/green] to see all commands")
-        console.print("   • Run [green]qgen <command> --help[/green] for command-specific help")
-        console.print("   • Check [green]qgen dimensions examples[/green] for inspiration")
+        if data_summary['tuples_generated'] > 0 or data_summary['queries_generated'] > 0:
+            recommendations.append("Customize prompts in [yellow]prompts/[/yellow] directory")
+            recommendations.append("Run [cyan]qgen dimensions validate[/cyan] to check quality")
+        
+        recommendations.extend([
+            "Check [cyan]qgen dimensions examples[/cyan] for inspiration",
+            "Use [cyan]qgen --help[/cyan] to see all commands"
+        ])
+        
+        # Show beautiful status using panels
+        show_project_status(config, data_summary, recommendations)
             
     except Exception as e:
         console.print(f"[red]❌ Error checking project status: {str(e)}[/red]")
+        raise typer.Exit(1)
+
+
+@review_app.command("tuples")
+def review_tuples_cmd():
+    """Review existing generated tuples."""
+    # Check if we're in a project directory
+    if not Path("dimensions.yml").exists():
+        show_error_panel(
+            "Not in a Project Directory",
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
+        raise typer.Exit(1)
+    
+    try:
+        # Use DataManager to load generated tuples
+        data_manager = get_data_manager(".")
+        tuples = data_manager.load_tuples("generated")
+        
+        if not tuples:
+            show_error_panel(
+                "No Generated Tuples Found",
+                "No tuples available for review",
+                ["Run qgen generate tuples to create tuples first", "If tuples exist, try: qgen review tuples", "Check if tuples exist in data/tuples/generated.json"]
+            )
+            raise typer.Exit(1)
+        
+        # Launch review interface
+        approved_tuples = review_tuples(tuples)
+        
+        if not approved_tuples:
+            console.print("[yellow]⚠️  No tuples were approved during review.[/yellow]")
+            raise typer.Exit(0)
+        
+        # Save approved tuples
+        approved_path = data_manager.save_tuples(
+            approved_tuples,
+            "approved",
+            {
+                "generated_count": len(tuples),
+                "approval_rate": len(approved_tuples) / len(tuples) if tuples else 0
+            }
+        )
+        
+        # Show success summary
+        show_generation_summary(
+            "tuple", 
+            len(approved_tuples), 
+            total_count=len(tuples), 
+            file_path=Path(approved_path), 
+            next_step="Run [cyan]qgen generate queries[/cyan] to generate queries from approved tuples"
+        )
+        
+    except Exception as e:
+        console.print(f"[red]❌ Failed to review tuples: {str(e)}[/red]")
+        raise typer.Exit(1)
+
+
+@review_app.command("queries")
+def review_queries_cmd():
+    """Review existing generated queries."""
+    # Check if we're in a project directory
+    if not Path("dimensions.yml").exists():
+        show_error_panel(
+            "Not in a Project Directory", 
+            "No dimensions.yml found in current directory",
+            ["Run qgen init <project_name> to create a new project", "Use qgen --help to see all commands"]
+        )
+        raise typer.Exit(1)
+    
+    try:
+        # Use DataManager to load generated queries
+        data_manager = get_data_manager(".")
+        queries = data_manager.load_queries("generated")
+        
+        if not queries:
+            show_error_panel(
+                "No Generated Queries Found",
+                "No queries available for review",
+                ["Run qgen generate queries to create queries first", "If queries exist, try: qgen review queries", "Check if queries exist in data/queries/generated/"]
+            )
+            raise typer.Exit(1)
+        
+        # Launch review interface
+        from qgen.cli.review import review_queries
+        approved_queries = review_queries(queries)
+        
+        if not approved_queries:
+            console.print("[yellow]⚠️  No queries were approved during review.[/yellow]")
+            raise typer.Exit(0)
+        
+        # Save approved queries
+        approved_path = data_manager.save_queries(
+            approved_queries,
+            "approved", 
+            {
+                "generated_count": len(queries),
+                "approval_rate": len(approved_queries) / len(queries) if queries else 0
+            }
+        )
+        
+        # Show success summary
+        show_generation_summary(
+            "query",
+            len(approved_queries),
+            total_count=len(queries), 
+            file_path=Path(approved_path),
+            next_step="Run [cyan]qgen export[/cyan] to export final dataset"
+        )
+        
+    except Exception as e:
+        console.print(f"[red]❌ Failed to review queries: {str(e)}[/red]")
         raise typer.Exit(1)
 
 
