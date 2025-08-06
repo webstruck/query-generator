@@ -9,11 +9,7 @@
 
 ### Installation
 
-```bash
-pip install qgen
-```
-
-Or install from source (recommended for development):
+Install from source (recommended for development):
 
 ```bash
 git clone https://github.com/webstruck/query-generator.git
