@@ -281,9 +281,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Built with [Typer](https://typer.tiangolo.com/) for the CLI framework
-- Uses [Rich](https://rich.readthedocs.io/) for beautiful terminal output
-- Powered by [OpenAI](https://openai.com/), [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service), and [GitHub Models](https://github.com/marketplace/models) APIs
+- Based on learnings from AI Evals For Engineers & PMs course by Hamel Husain and Shreya Shankar.
 
 ---
 
