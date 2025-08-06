@@ -54,8 +54,7 @@ That's it! You now have a dataset of synthetic queries ready for your AI project
 
 - **🔧 Domain Templates**: Pre-built templates for common use cases (customer support, e-commerce, Q&A, etc.)
 - **📊 Systematic Generation**: Two-stage process ensures comprehensive coverage
-- **🎨 Interactive Review**: Review and approve generated content with single-letter shortcuts (a/r/e/s/q)
-- **⏸️ Resume Review**: Standalone review commands for interrupted workflows
+- **🎨 Interactive Review**: Review and approve generated content
 - **📤 Multiple Export Formats**: CSV and JSON export with rich metadata
 - **🔌 LLM Integration**: Works with OpenAI, Azure OpenAI, and GitHub Models and extendable to other providers
 - **🎛️ Fully Configurable**: Customize dimensions, prompts, and generation parameters
@@ -85,13 +84,6 @@ That's it! You now have a dataset of synthetic queries ready for your AI project
 
 This approach ensures systematic coverage while maintaining query naturalness.
 
-### Interactive Review System
-The review interface provides fast, keyboard-driven workflow:
-- **Single-letter shortcuts**: `a` (approve), `r` (reject), `e` (edit), `s` (skip), `q` (quit)
-- **Resume capability**: Exit and resume review sessions anytime
-- **Rich visual feedback**: Beautiful panels show approval rates and progress
-- **Flexible workflow**: Generate in batches, review when convenient
-
 ## 📖 Usage Guide
 
 ### Project Management
@@ -103,7 +95,9 @@ qgen init my-project --template customer_support
 # Check project status
 qgen status
 
-# Validate dimensions
+# Edit dimensions.yml to specify dimensions
+
+# Sanitize dimensions
 qgen dimensions validate
 ```
 
@@ -155,9 +149,10 @@ QGen maintains an organized project structure:
 ```
 my-project/
 ├── dimensions.yml          # Your dimension definitions
+├── config.yml              # LLM parameters and prompt template definitions
 ├── data/
 │   ├── tuples/            # generated.json, approved.json
-│   ├── queries/           # generated/, approved/
+│   ├── queries/           # generated.json, approved.json
 │   └── exports/           # Final datasets (CSV/JSON)
 └── prompts/               # Customizable LLM templates
 ```
@@ -179,7 +174,7 @@ AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
 AZURE_OPENAI_API_VERSION=2023-12-01-preview
 
 # Or GitHub Models (free tier available)
-GITHUB_TOKEN=your_github_token_with_models_read_scope
+GITHUB_TOKEN=your_github_PAT__token_with_models_read_scope
 ```
 
 ### Custom Dimensions
