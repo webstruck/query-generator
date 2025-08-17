@@ -131,8 +131,8 @@ async def create_project(request: ProjectCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/projects")
-async def list_projects():
-    """List available projects in user's working directory."""
+async def list_projects(limit: Optional[int] = None):
+    """List available projects in user's working directory, sorted by modification time."""
     user_dir = Path(USER_CWD)
     projects = []
     
@@ -144,10 +144,22 @@ async def list_projects():
                     "name": d.name,
                     "path": str(d),
                     "domain": config.domain,
-                    "dimensions_count": len(config.dimensions)
+                    "dimensions_count": len(config.dimensions),
+                    "modified_time": d.stat().st_mtime
                 })
             except:
                 continue
+    
+    # Sort by modification time, most recent first
+    projects.sort(key=lambda x: x["modified_time"], reverse=True)
+    
+    # Remove modified_time from response (internal use only)
+    for project in projects:
+        del project["modified_time"]
+    
+    # Apply limit if specified
+    if limit is not None:
+        projects = projects[:limit]
     
     return {"projects": projects}
 
