@@ -3,7 +3,10 @@
 import typer
 from pathlib import Path
 from rich.console import Console
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from qgen.core.rag_models import RAGConfig
 from qgen.core.rich_output import (
     show_project_init_success, 
     show_project_status,
@@ -44,27 +47,54 @@ from qgen.cli.review import review_tuples
 app = typer.Typer(help="Query Generation Tool - Generate synthetic queries using LLMs")
 console = Console()
 
+# Load environment variables once at startup
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context):
+    """Main callback to load environment before any command runs."""
+    if ctx.invoked_subcommand is None:
+        # Show help if no command specified
+        print(ctx.get_help())
+        return
+    
+    # Load environment variables from .env file once
+    ensure_environment_loaded(verbose=False)
+
 # Command groups
 dimensions_app = typer.Typer(help="Manage dimensions")
 generate_app = typer.Typer(help="Generate tuples and queries")
 review_app = typer.Typer(help="Review existing tuples and queries")
 
+# Import RAG commands
+from .rag import rag_app
+
 app.add_typer(dimensions_app, name="dimensions")
 app.add_typer(generate_app, name="generate")
 app.add_typer(review_app, name="review")
+app.add_typer(rag_app, name="rag")
 
 
 @app.command()
 def init(
     project_name: str = typer.Argument(help="Name of the project to create"),
     template: Optional[str] = typer.Option(
-        "real_estate", 
+        None, 
         help="Template to use: " + ", ".join(list_available_domains())
-    )
+    ),
+    rag: bool = typer.Option(False, help="Initialize as RAG project")
 ):
     """Initialize a new query generation project."""
-    console.print(f"🚀 Initializing project: {project_name}")
-    console.print(f"📋 Using template: {template}")
+    if rag:
+        console.print(f"🧠 Initializing RAG project: {project_name}")
+        create_rag_project(project_name)
+        return
+    else:
+        console.print(f"🚀 Initializing project: {project_name}")
+        if template:
+            console.print(f"📋 Using template: {template}")
+        else:
+            # Set default template for regular projects
+            template = "real_estate"
+            console.print(f"📋 Using default template: {template}")
     
     # Check if directory already exists
     project_path = Path(project_name)
@@ -241,7 +271,7 @@ def generate_tuples(
     count: int = typer.Option(20, help="Number of tuples to generate"),
     review: bool = typer.Option(True, help="Launch review interface after generation"),
     output: str = typer.Option("data/tuples/generated.json", help="Output file for generated tuples"),
-    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, or github (auto-detect if not specified)"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, github, or ollama (auto-detect if not specified)"),
     skip_guidance: bool = typer.Option(False, help="Skip interactive prompt customization guidance")
 ):
     """Generate tuple combinations from dimensions."""
@@ -406,7 +436,7 @@ def generate_queries(
         help="Path to approved tuples file (default: data/tuples/approved.json)"
     ),
     review: bool = typer.Option(True, help="Launch review interface after generation"),
-    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, or github (auto-detect if not specified)"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider: openai, azure, github, or ollama (auto-detect if not specified)"),
     queries_per_tuple: int = typer.Option(3, help="Number of queries to generate per tuple"),
     skip_guidance: bool = typer.Option(False, help="Skip interactive prompt customization guidance")
 ):
@@ -681,6 +711,11 @@ def status():
         available_providers = get_available_providers()
         auto_provider = auto_detect_provider()
         
+        # Provider info for status display
+        provider_info = f"Available: {', '.join(available_providers) if available_providers else 'None'}"
+        if auto_provider:
+            provider_info += f" | Auto-detected: {auto_provider}"
+        
         # Prepare data for panel display
         data_summary = {
             'tuples_generated': 0,
@@ -849,6 +884,361 @@ def review_queries_cmd():
         
     except Exception as e:
         console.print(f"[red]❌ Failed to review queries: {str(e)}[/red]")
+        raise typer.Exit(1)
+
+
+def create_rag_project(project_name: str):
+    """Create a new RAG project structure."""
+    from qgen.core.rag_models import RAGConfig
+    
+    project_path = Path(project_name)
+    
+    if project_path.exists():
+        show_error_panel(
+            "Directory Already Exists", 
+            f"Directory '{project_name}' already exists",
+            ["Choose a different project name", "Remove the existing directory first"]
+        )
+        raise typer.Exit(1)
+    
+    try:
+        # Create directory structure
+        project_path.mkdir(parents=True)
+        (project_path / "chunks").mkdir()
+        (project_path / "data").mkdir()
+        (project_path / "data" / "facts").mkdir()
+        (project_path / "data" / "queries").mkdir()
+        (project_path / "data" / "exports").mkdir()
+        (project_path / "prompts").mkdir()
+        
+        # Create default RAG config with detailed comments
+        config = RAGConfig()
+        create_annotated_rag_config(project_path / "config.yml", config)
+        
+        # Copy default RAG prompts (placeholder for now)
+        copy_rag_prompt_templates(project_path / "prompts")
+        
+        # Create example input file
+        create_example_chunks_file(project_path / "chunks" / "example.jsonl")
+        
+        console.print(f"[green]✅ RAG project '{project_name}' created successfully[/green]")
+        console.print(f"[blue]📁 Project structure:[/blue]")
+        console.print(f"  {project_name}/")
+        console.print(f"  ├── chunks/           # Input JSONL files with chunk data")
+        console.print(f"  ├── data/            # Generated facts and queries")
+        console.print(f"  │   ├── facts/       # Extracted facts (generated.json, approved.json)")
+        console.print(f"  │   ├── queries/     # Generated queries (generated.json, approved.json)")
+        console.print(f"  │   └── exports/     # Final export files")
+        console.print(f"  ├── prompts/         # Customizable LLM prompt templates")
+        console.print(f"  └── config.yml       # RAG configuration settings")
+        
+        console.print(f"\n[yellow]💡 Next steps:[/yellow]")
+        console.print(f"1. Navigate to project: [cyan]cd {project_name}[/cyan]")
+        console.print(f"2. Add your chunk data to [cyan]chunks/[/cyan] (JSONL format)")
+        console.print(f"3. Configure settings in [cyan]config.yml[/cyan]")
+        console.print(f"4. Run [cyan]qgen rag extract-facts[/cyan] to begin")
+        console.print(f"\n[dim]ℹ️  Important: All RAG commands must be run from inside the project directory[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Failed to create RAG project: {str(e)}[/red]")
+        # Clean up if directory was created
+        if project_path.exists():
+            import shutil
+            shutil.rmtree(project_path)
+        raise typer.Exit(1)
+
+
+def copy_rag_prompt_templates(prompts_dir: Path):
+    """Copy default RAG prompt templates to project."""
+    # Create basic prompt templates for now
+    templates = {
+        "fact_extraction.txt": """You are an expert at extracting salient facts from text chunks.
+
+Given the following text chunk, identify ONE key fact that a user might want to ask a question about.
+The fact should be:
+- Specific and actionable
+- Clearly stated in the text
+- Something a real user would want to know
+
+Chunk ID: {chunk_id}
+Chunk Text: {chunk_text}
+
+Extract the most important fact that users would commonly ask about.""",
+
+        "standard_query_generation.txt": """You are an expert at creating realistic user queries for information retrieval systems.
+
+Given a text chunk and a specific fact from that chunk, generate a natural question that a real user would ask to find this information.
+
+Chunk Text: {chunk_text}
+Target Fact: {fact_text}
+
+Guidelines:
+- Make the question sound natural and conversational
+- Use varied phrasing (don't just restate the fact)
+- The question should be answerable by the given chunk
+
+Create a realistic query that sounds like something a real user would ask.""",
+
+        "adversarial_query_generation.txt": """You are an expert at creating challenging test queries for retrieval systems.
+
+Given a target chunk with a specific fact, and some similar chunks that might be confusing, create a query that:
+- Is answered by the target chunk
+- Might be confused with the distractor chunks
+- Uses terms from both target and distractor chunks
+- Is still realistic and natural
+
+Target Chunk: {target_chunk_text}
+Target Fact: {target_fact}
+
+Distractor Chunks:
+{distractor_chunks}
+
+Create an adversarial query that uses terms from the distractors but is only answerable by the target chunk.""",
+
+        "multihop_query_generation.txt": """You are an expert at creating challenging multi-hop queries for RAG evaluation systems.
+
+Your task is to create an adversarial question that requires combining information from ALL provided chunks and is challenging for retrieval systems.
+
+Given {num_chunks} related chunks below, create a query that:
+
+REQUIREMENTS:
+1. ✅ Requires information from ALL {num_chunks} chunks to answer completely
+2. ✅ Is challenging for retrieval systems (might retrieve only partial information)
+3. ✅ Sounds natural and realistic - something a real user would ask
+4. ✅ Tests the system's ability to synthesize information across multiple sources
+5. ✅ Has some complexity that makes simple keyword matching insufficient
+
+CHUNKS TO ANALYZE:
+{chunk_contexts}
+
+ADVERSARIAL STRATEGY:
+{difficulty_instruction}
+
+Create a query that would be difficult for a retrieval system because:
+- It requires synthesizing facts across multiple chunks
+- Simple keyword overlap might not identify all relevant chunks
+- The answer requires connecting related concepts from different sources
+- A partial answer from just one chunk would be incomplete or misleading
+
+RESPONSE FORMAT:
+QUERY: [Write a natural, conversational question that requires all chunks to answer completely. Make it sound like something a real user would ask.]
+
+ANSWER: [Provide the complete answer that demonstrates information from all chunks is needed. This should be comprehensive and show how the chunks complement each other.]
+
+REASONING: [Explain in 2-3 sentences why this query is adversarial - what makes it challenging for retrieval systems and why all chunks are essential for the complete answer.]
+
+Remember: The query should be natural and realistic while being technically challenging for RAG systems.""",
+
+        "realism_scoring.txt": """You are an expert at evaluating the realism of user queries for information retrieval systems.
+
+Rate the following query on a scale of 1-5 for how realistic it sounds as something a real user would ask:
+
+Query: {query_text}
+Answer Fact: {answer_fact}
+Difficulty Level: {difficulty}
+
+Consider:
+- Natural language patterns
+- Realistic information needs
+- Appropriate complexity for the difficulty level
+- Conversational tone
+
+Evaluate this query's realism and provide a score from 1 (very artificial) to 5 (very realistic)."""
+    }
+    
+    for filename, content in templates.items():
+        with open(prompts_dir / filename, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+
+def create_annotated_rag_config(config_path: Path, config: "RAGConfig"):
+    """Create a RAG config file with detailed comments and explanations."""
+    config_content = f"""# RAG Query Generation Configuration
+# This file controls how queries are generated for RAG evaluation datasets
+
+# =============================================================================
+# QUERY TYPE RATIOS
+# Control the distribution of different query types in your final dataset
+# These ratios must sum to 1.0 (100%)
+# =============================================================================
+
+# Standard queries: straightforward questions answered by a single chunk
+standard_ratio: {config.standard_ratio}  # Default: 60% - most realistic user queries
+
+# Adversarial queries: challenging queries that might confuse retrieval systems
+# Uses embedding similarity to find similar chunks as distractors
+adversarial_ratio: {config.adversarial_ratio}  # Default: 30% - tests robustness
+
+# Multi-hop queries: questions requiring multiple chunks to answer completely
+multihop_ratio: {config.multihop_ratio}  # Default: 10% - tests complex reasoning
+
+# =============================================================================
+# MULTI-HOP QUERY SETTINGS  
+# Configure how multi-hop queries are generated
+# =============================================================================
+
+# Range of chunks to combine for multi-hop queries [min, max]
+multihop_chunk_range: {config.multihop_chunk_range}  # Default: [2, 4] chunks per query
+
+# Number of different queries to generate per chunk combination
+multihop_queries_per_combination: {config.multihop_queries_per_combination}  # Default: 2 queries
+
+# =============================================================================
+# ADVERSARIAL QUERY SETTINGS
+# Configure how adversarial queries are created using embedding similarity
+# =============================================================================
+
+# Minimum cosine similarity threshold for chunks to be considered "confusing"
+# Higher values = more similar chunks used as distractors (more challenging)
+# Range: 0.0 (no similarity) to 1.0 (identical)
+similarity_threshold: {config.similarity_threshold}  # Default: 0.7 (fairly similar)
+
+# =============================================================================
+# QUALITY CONTROL
+# Automatic filtering of generated queries based on realism scores
+# =============================================================================
+
+# Minimum realism score (1-5) for queries to be automatically approved
+# Queries below this score are rejected or flagged for manual review
+# 1 = very artificial, 5 = very realistic
+min_realism_score: {config.min_realism_score}  # Default: 3.5 (above average)
+
+# =============================================================================
+# EMBEDDING MODEL SETTINGS
+# Configure the embedding model used for semantic similarity and adversarial generation
+# =============================================================================
+
+# Embedding model to use for chunk similarity computation
+# Popular options:
+# - "sentence-transformers/all-MiniLM-L6-v2" (fast, good balance)
+# - "sentence-transformers/all-mpnet-base-v2" (higher quality, slower)
+# - "sentence-transformers/all-MiniLM-L12-v2" (medium size/quality)
+embedding_model: "{config.embedding_model}"
+
+# Batch size for embedding computation (adjust based on your GPU/CPU memory)
+embedding_batch_size: {config.embedding_batch_size}  # Default: 32
+
+# Cache embeddings to disk to avoid recomputation across runs
+cache_embeddings: {config.cache_embeddings}  # Default: true
+
+# =============================================================================
+# HIGHLIGHTING SETTINGS
+# Configure fact highlighting in chunk context display during review
+# =============================================================================
+
+# Minimum embedding similarity threshold for highlighting sentences during fact review
+# Higher values = more strict highlighting (only very similar sentences)
+# Range: 0.0 (highlight everything) to 1.0 (only identical sentences)
+highlight_similarity_threshold: {config.highlight_similarity_threshold}  # Default: 0.65
+
+# =============================================================================
+# LLM PROVIDER SETTINGS  
+# Configure which LLM provider and parameters to use for query generation
+# =============================================================================
+
+# LLM provider: "openai", "azure", or "github" 
+# Make sure to set appropriate environment variables in .env file
+llm_provider: "{config.llm_provider}"  # Default: openai
+
+# Additional parameters passed to the LLM API
+# Examples: {{"temperature": 0.7, "max_tokens": 150, "top_p": 0.9}}
+llm_params: {config.llm_params}  # Default: empty (use provider defaults)
+
+# =============================================================================
+# PROMPT TEMPLATE PATHS
+# Paths to customizable prompt templates for different generation tasks
+# Edit these files to customize how queries are generated for your domain
+# =============================================================================
+
+prompt_templates:
+  # Extract salient facts from text chunks
+  fact_extraction: "{config.prompt_templates['fact_extraction']}"
+  
+  # Generate standard queries from facts  
+  standard_query: "{config.prompt_templates['standard_query']}"
+  
+  # Generate adversarial queries using distractor chunks
+  adversarial_query: "{config.prompt_templates['adversarial_query']}"
+  
+  # Generate multi-hop queries spanning multiple chunks
+  multihop_query: "{config.prompt_templates['multihop_query']}"
+  
+  # Score query realism (1-5 scale) for quality filtering
+  realism_scoring: "{config.prompt_templates['realism_scoring']}"
+
+# =============================================================================
+# USAGE TIPS
+# =============================================================================
+# 
+# 1. Start with default settings and adjust based on your domain and needs
+# 2. Higher adversarial_ratio = more challenging dataset, but may be less realistic  
+# 3. Lower similarity_threshold = easier adversarial queries (less confusing)
+# 4. Customize prompt templates in prompts/ directory for domain-specific results
+# 5. Use embeddings cache for faster repeated runs on same chunk data
+# 6. Monitor realism scores and adjust min_realism_score threshold accordingly
+#
+# For more help: Run 'qgen rag --help' to see available commands
+"""
+    
+    with open(config_path, 'w', encoding='utf-8') as f:
+        f.write(config_content)
+
+
+def create_example_chunks_file(filepath: Path):
+    """Create an example chunks file to demonstrate the format."""
+    example_chunks = [
+        {
+            "chunk_id": "example_001",
+            "text": "The community pool is open from 9 AM to 10 PM, Tuesday through Sunday. The pool is closed on Mondays for maintenance. Each apartment unit may have up to two guests at the pool at any time.",
+            "source_document": "community_amenities.pdf",
+            "section": "Pool Rules",
+            "related_chunks": ["example_002"],
+            "custom_metadata": {"category": "amenities", "priority": "high"}
+        },
+        {
+            "chunk_id": "example_002", 
+            "text": "The fitness center features state-of-the-art equipment including Peloton bikes, free weights, and a yoga studio. The fitness center is available 24/7 with key card access.",
+            "source_document": "community_amenities.pdf",
+            "section": "Fitness Facilities",
+            "related_chunks": ["example_001"],
+            "custom_metadata": {"category": "amenities", "priority": "medium"}
+        },
+        {
+            "chunk_id": "example_003",
+            "text": "Guest parking is available in designated spots marked with 'GUEST' signs. Guest parking is limited to 48 hours maximum. Vehicles exceeding this limit will be towed at owner's expense.",
+            "source_document": "parking_policy.pdf", 
+            "section": "Guest Parking",
+            "custom_metadata": {"category": "parking", "priority": "high"}
+        }
+    ]
+    
+    import json
+    with open(filepath, 'w', encoding='utf-8') as f:
+        for chunk in example_chunks:
+            f.write(json.dumps(chunk, ensure_ascii=False) + '\n')
+
+
+@app.command()
+def web():
+    """Launch the web interface for qgen."""
+    console.print("🚀 [bold green]Launching QGen Web Interface...[/bold green]")
+    console.print("🌐 Frontend: [blue]http://localhost:5173[/blue]")
+    console.print("🔧 Backend API: [blue]http://localhost:8000[/blue]")
+    console.print("💡 [dim]Tip: Navigate to your project directory before running for best experience[/dim]")
+    console.print("")
+    
+    try:
+        from qgen.web.launcher import launch_web_interface
+        launch_web_interface()
+    except ImportError:
+        show_error_panel(
+            "Web Interface Not Available", 
+            "Web dependencies not installed", 
+            ["Install with: uv sync", "Dependencies: fastapi, uvicorn"]
+        )
+        raise typer.Exit(1)
+    except Exception as e:
+        show_error_panel("Web Interface Error", str(e))
         raise typer.Exit(1)
 
 

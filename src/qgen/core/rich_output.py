@@ -13,44 +13,80 @@ from rich.padding import Padding
 console = Console()
 
 
+def create_panel(content: str, style: str = "info", title: str = "", emoji: str = "", 
+                subtitle: str = "", padding: tuple = (0, 1)) -> Panel:
+    """Create a formatted panel with specified style.
+    
+    Args:
+        content: Panel content text
+        style: Panel style - "success", "info", "action", "tip", "header", "error", "warning"
+        title: Panel title (optional)
+        emoji: Custom emoji (uses default for style if not provided)
+        subtitle: Subtitle for header style panels
+        padding: Panel padding tuple (vertical, horizontal)
+    
+    Returns:
+        Rich Panel object
+    """
+    # Style configurations: (color, default_emoji, bold_style)
+    styles = {
+        "success": ("green", "✅", "bold green"),
+        "info": ("blue", "📋", "bold blue"), 
+        "action": ("yellow", "🎯", "bold yellow"),
+        "tip": ("cyan", "💡", "bold cyan"),
+        "header": ("magenta", "🚀", "bold magenta"),
+        "error": ("red", "❌", "bold red"),
+        "warning": ("yellow", "⚠️", "bold yellow")
+    }
+    
+    color, default_emoji, title_style = styles.get(style, ("blue", "📋", "bold blue"))
+    display_emoji = emoji or default_emoji
+    
+    # Special handling for header style
+    if style == "header":
+        panel_content = f"[bold]{content}[/bold]"
+        if subtitle:
+            panel_content += f"\n[dim]{subtitle}[/dim]"
+        panel_padding = (1, 2)  # Headers get more padding
+    else:
+        panel_content = content
+        panel_padding = padding
+    
+    # Create title with emoji if provided
+    panel_title = f"[{title_style}]{display_emoji} {title}[/{title_style}]" if title else None
+    
+    return Panel(
+        panel_content,
+        title=panel_title,
+        border_style=color,
+        padding=panel_padding
+    )
+
+
+# Backward compatibility functions - these delegate to create_panel
 def create_success_panel(title: str, content: str, emoji: str = "✅") -> Panel:
     """Create a success panel with green border."""
-    return Panel(
-        content,
-        title=f"[bold green]{emoji} {title}[/bold green]",
-        border_style="green",
-        padding=(0, 1)
-    )
+    return create_panel(content, "success", title, emoji)
 
 
 def create_info_panel(title: str, content: str, emoji: str = "📋") -> Panel:
     """Create an info panel with blue border."""
-    return Panel(
-        content,
-        title=f"[bold blue]{emoji} {title}[/bold blue]",
-        border_style="blue",
-        padding=(0, 1)
-    )
+    return create_panel(content, "info", title, emoji)
 
 
 def create_action_panel(title: str, content: str, emoji: str = "🎯") -> Panel:
     """Create an action panel with yellow border."""
-    return Panel(
-        content,
-        title=f"[bold yellow]{emoji} {title}[/bold yellow]",
-        border_style="yellow",
-        padding=(0, 1)
-    )
+    return create_panel(content, "action", title, emoji)
 
 
 def create_tip_panel(title: str, content: str, emoji: str = "💡") -> Panel:
     """Create a tip panel with cyan border."""
-    return Panel(
-        content,
-        title=f"[bold cyan]{emoji} {title}[/bold cyan]",
-        border_style="cyan",
-        padding=(0, 1)
-    )
+    return create_panel(content, "tip", title, emoji)
+
+
+def create_header_panel(title: str, subtitle: str = "", emoji: str = "🚀") -> Panel:
+    """Create a header panel with prominent styling."""
+    return create_panel(title, "header", title, emoji, subtitle)
 
 
 def format_file_path(path: Path, max_length: int = 60) -> str:
@@ -236,12 +272,7 @@ def show_error_panel(title: str, message: str, suggestions: Optional[List[str]] 
         content += format_bullet_list(suggestions)
     
     console.print()
-    console.print(Panel(
-        content,
-        title=f"[bold red]❌ {title}[/bold red]",
-        border_style="red",
-        padding=(0, 1)
-    ))
+    console.print(create_panel(content, "error", title))
     console.print()
 
 

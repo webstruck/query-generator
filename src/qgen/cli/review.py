@@ -1,13 +1,16 @@
 """Simple review interface for tuples and queries."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict
+from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 from rich.prompt import Confirm, Prompt
 from rich.panel import Panel
 
 from qgen.core.models import Tuple, Query
+from qgen.core.rag_models import ExtractedFact, RAGQuery, ChunkData
 from qgen.core.rich_output import show_review_start, show_review_summary
+from qgen.core.chunk_processing import ChunkProcessor
 
 console = Console()
 
@@ -212,3 +215,324 @@ def quick_review_summary(tuples: List[Tuple], queries: List[Query]) -> None:
             console.print(f"  ... and {len(queries) - 3} more")
     
     console.print()
+
+
+def review_facts(facts: List[ExtractedFact]) -> List[ExtractedFact]:
+    """Simple CLI interface to review and approve extracted facts."""
+    if not facts:
+        console.print("[yellow]No facts to review.[/yellow]")
+        return []
+    
+    show_review_start("fact", len(facts))
+    
+    # Load chunks for context
+    chunks_dict = {}
+    try:
+        from pathlib import Path
+        chunks_dir = Path("chunks")
+        if chunks_dir.exists():
+            processor = ChunkProcessor()
+            chunks = processor.load_chunks_from_directory(chunks_dir)
+            chunks_dict = {chunk.chunk_id: chunk for chunk in chunks}
+            console.print(f"[dim]✅ Loaded {len(chunks)} chunks for context[/dim]")
+    except Exception as e:
+        console.print(f"[dim]⚠️  Could not load chunks for context: {e}[/dim]")
+    
+    approved_facts = []
+    rejected_count = 0
+    
+    for i, fact in enumerate(facts):
+        console.print(f"\n[bold]Fact {i+1}/{len(facts)}:[/bold]")
+        
+        # Display fact details in a panel
+        fact_content = f"""[bold cyan]Chunk ID:[/bold cyan] {fact.chunk_id}
+[bold green]Extracted Fact:[/bold green] {fact.fact_text}
+[bold yellow]Confidence:[/bold yellow] {fact.extraction_confidence:.2f}
+[bold blue]Reasoning:[/bold blue] {getattr(fact, 'reasoning', 'N/A')}"""
+        
+        fact_panel = Panel(
+            fact_content,
+            title=f"Fact {fact.fact_id[:8]}...",  # Show only first 8 chars of UUID
+            border_style="bright_blue",
+            padding=(1, 2)
+        )
+        console.print(fact_panel)
+        
+        # Show chunk context with highlighting
+        chunk = chunks_dict.get(fact.chunk_id)
+        if chunk:
+            console.print(f"\n[bold]📄 Chunk Context:[/bold]")
+            
+            # Get highlighted chunk text using embedding-based similarity
+            highlighted_text = fact.get_chunk_with_highlight(chunk.text)
+            
+            # Display chunk with highlighting in a panel
+            chunk_panel = Panel(
+                highlighted_text,
+                title=f"Source: {chunk.source_document or 'Unknown'}",
+                border_style="dim",
+                padding=(1, 2)
+            )
+            console.print(chunk_panel)
+            
+            # Show span information if available
+            if fact.span and fact.span.start is not None:
+                console.print(f"[dim]📍 Span: characters {fact.span.start}-{fact.span.end}[/dim]")
+        else:
+            console.print(f"[dim]⚠️  Chunk context not available for {fact.chunk_id}[/dim]")
+        
+        # Get user decision
+        while True:
+            choice = Prompt.ask(
+                "\n[bold]Action[/bold] ([green]a[/green]pprove/[red]r[/red]eject/[yellow]e[/yellow]dit/[cyan]s[/cyan]kip/[dim]q[/dim]uit)",
+                default="a"
+            ).lower()
+            
+            if choice in ["approve", "a"]:
+                approved_facts.append(fact)
+                console.print("[green]✅ Approved[/green]")
+                break
+            elif choice in ["reject", "r"]:
+                rejected_count += 1
+                console.print("[red]❌ Rejected[/red]")
+                break
+            elif choice in ["edit", "e"]:
+                edited_fact = edit_fact(fact)
+                if edited_fact:
+                    approved_facts.append(edited_fact)
+                    console.print("[green]✅ Edited and approved[/green]")
+                else:
+                    console.print("[yellow]⚠️  Edit cancelled[/yellow]")
+                break
+            elif choice in ["skip", "s"]:
+                console.print("[yellow]⏩ Skipped[/yellow]")
+                break
+            elif choice in ["quit", "q"]:
+                console.print(f"\n[blue]Review stopped. {len(approved_facts)} facts approved so far.[/blue]")
+                return approved_facts
+            else:
+                console.print("[red]Invalid choice. Please use a/r/e/s/q[/red]")
+    
+    show_review_summary("fact", len(facts), len(approved_facts), rejected_count)
+    return approved_facts
+
+
+def edit_fact(fact: ExtractedFact) -> Optional[ExtractedFact]:
+    """Allow user to edit an extracted fact."""
+    console.print(f"\n[bold blue]Editing fact:[/bold blue]")
+    console.print(f"[dim]Current: {fact.fact_text}[/dim]")
+    
+    new_fact_text = Prompt.ask(
+        "New fact text",
+        default=fact.fact_text
+    )
+    
+    if new_fact_text != fact.fact_text:
+        # Update fact with new text
+        fact.fact_text = new_fact_text
+        
+        # Ask for new confidence if text changed significantly
+        if len(new_fact_text) != len(fact.fact_text):
+            try:
+                new_confidence = float(Prompt.ask(
+                    "New confidence (0.0-1.0)",
+                    default=str(fact.extraction_confidence)
+                ))
+                if 0.0 <= new_confidence <= 1.0:
+                    fact.extraction_confidence = new_confidence
+            except ValueError:
+                pass  # Keep original confidence if invalid input
+        
+        return fact
+    else:
+        return fact
+
+
+def review_queries(queries: List[RAGQuery], chunks_map: Dict[str, ChunkData]) -> List[RAGQuery]:
+    """Review and approve RAG queries with interactive CLI interface."""
+    
+    if not queries:
+        console.print("[yellow]No queries to review.[/yellow]")
+        return []
+    
+    console.print(f"\n[bold blue]📝 RAG Query Review Interface[/bold blue]")
+    console.print(f"[dim]Reviewing {len(queries)} generated queries[/dim]")
+    console.print("[dim]Commands: [bold](a)[/bold]pprove, [bold](r)[/bold]eject, [bold](e)[/bold]dit, [bold](s)[/bold]kip, [bold](q)[/bold]uit[/dim]\n")
+    
+    approved_queries = []
+    
+    for i, query in enumerate(queries, 1):
+        # Display query information
+        console.print(f"Query {i}/{len(queries)}:")
+        
+        # Main query panel
+        query_panel = Panel(
+            f"Query ID: {query.query_id[:12]}...\n"
+            f"Query: {query.query_text}\n"
+            f"Answer Fact: {query.answer_fact}\n" +
+            (f"Difficulty: {query.difficulty}\n" if query.difficulty else "") +
+            (f"Realism Score: {query.realism_score:.2f}\n" if hasattr(query, 'realism_score') and query.realism_score else "") +
+            (f"Source Fact ID: {query.source_fact_id}\n" if hasattr(query, 'source_fact_id') and query.source_fact_id else "") +
+            (f"Reasoning: {query.reasoning}" if hasattr(query, 'reasoning') and query.reasoning else ""),
+            title=f"Query {query.query_id[:8]}...",
+            border_style="blue",
+            padding=(1, 2)
+        )
+        console.print(query_panel)
+        
+        # Show source chunk context with highlighting if available
+        if query.source_chunk_ids:
+            # Display header based on number of chunks
+            if len(query.source_chunk_ids) == 1:
+                console.print("📄 Source Chunk Context:")
+            else:
+                console.print(f"📄 Source Chunks Context ({len(query.source_chunk_ids)} chunks):")
+            
+            # Show all chunks for multi-hop queries
+            for chunk_idx, chunk_id in enumerate(query.source_chunk_ids, 1):
+                chunk = chunks_map.get(chunk_id)
+                if chunk:
+                    # Use cached embeddings to highlight relevant text based on the answer fact
+                    try:
+                        from qgen.core.rag_models import ExtractedFact
+                        
+                        # Create a temporary fact object for highlighting
+                        temp_fact = ExtractedFact(
+                            fact_text=query.answer_fact,
+                            chunk_id=chunk_id,
+                            extraction_confidence=1.0  # Dummy confidence for highlighting
+                        )
+                        
+                        # Get highlighted text using cached embeddings
+                        highlighted_text = temp_fact.get_chunk_with_highlight(chunk.text)
+                        
+                        # For multi-hop, show chunk number in title
+                        title_suffix = ""
+                        if len(query.source_chunk_ids) > 1:
+                            title_suffix = f" (Chunk {chunk_idx}/{len(query.source_chunk_ids)})"
+                        
+                        chunk_panel = Panel(
+                            highlighted_text,
+                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix} (with highlighting)",
+                            border_style="dim",
+                            padding=(1, 2)
+                        )
+                        console.print(chunk_panel)
+                        
+                    except Exception:
+                        # Fallback to plain text if highlighting fails
+                        title_suffix = ""
+                        if len(query.source_chunk_ids) > 1:
+                            title_suffix = f" (Chunk {chunk_idx}/{len(query.source_chunk_ids)})"
+                        
+                        chunk_panel = Panel(
+                            chunk.text,
+                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix}",
+                            border_style="dim",
+                            padding=(1, 2)
+                        )
+                        console.print(chunk_panel)
+                else:
+                    console.print(f"[red]⚠️  Chunk {chunk_id} not found in chunks map[/red]")
+            
+            # For multi-hop queries, show additional info
+            if len(query.source_chunk_ids) > 1:
+                multihop_info = f"[dim]🔗 Multi-hop query requiring {len(query.source_chunk_ids)} chunks to answer completely[/dim]"
+                console.print(multihop_info)
+        
+        # Get user decision
+        while True:
+            try:
+                choice = Prompt.ask(
+                    "\n[bold]Action[/bold] ([green]a[/green]pprove/[red]r[/red]eject/[yellow]e[/yellow]dit/[cyan]s[/cyan]kip/[dim]q[/dim]uit)",
+                    default="a"
+                ).lower()
+                
+                if choice in ["approve", "a"]:
+                    approved_queries.append(query)
+                    console.print("[green]✅ Approved[/green]")
+                    break
+                elif choice in ["reject", "r"]:
+                    console.print("[red]❌ Rejected[/red]")
+                    break
+                elif choice in ["edit", "e"]:
+                    edited_query = edit_query(query)
+                    if edited_query:
+                        approved_queries.append(edited_query)
+                        console.print("[green]✅ Edited and approved[/green]")
+                    else:
+                        console.print("[yellow]⚠️  Edit cancelled[/yellow]")
+                    break
+                elif choice in ["skip", "s"]:
+                    console.print("[yellow]⏩ Skipped[/yellow]")
+                    break
+                elif choice in ["quit", "q"]:
+                    console.print(f"\n[blue]Review stopped. {len(approved_queries)} queries approved so far.[/blue]")
+                    return approved_queries
+                else:
+                    console.print("[red]Invalid choice. Please use a/r/e/s/q[/red]")
+                    # Continue if they don't confirm quit
+                    
+            except KeyboardInterrupt:
+                console.print(f"\n[yellow]Review interrupted. Approved {len(approved_queries)} queries.[/yellow]")
+                return approved_queries
+    
+    console.print(f"[green]✅ Review complete! Approved {len(approved_queries)} out of {len(queries)} queries.[/green]")
+    return approved_queries
+
+
+def edit_query(query: RAGQuery) -> Optional[RAGQuery]:
+    """Allow user to edit a query."""
+    console.print("\n[bold]Editing Query[/bold]")
+    console.print("[dim]Press Enter to keep current value[/dim]")
+    
+    # Edit query text
+    new_query_text = Prompt.ask(
+        "Query text",
+        default=query.query_text
+    )
+    
+    # Edit answer fact if needed
+    new_answer_fact = Prompt.ask(
+        "Answer fact",
+        default=query.answer_fact
+    )
+    
+    # Edit difficulty if provided
+    new_difficulty = query.difficulty
+    if query.difficulty:
+        new_difficulty = Prompt.ask(
+            "Difficulty",
+            choices=["standard", "adversarial", "multi-hop"],
+            default=query.difficulty
+        )
+    
+    # Edit realism score if provided
+    new_realism_score = getattr(query, 'realism_score', None)
+    if hasattr(query, 'realism_score') and query.realism_score is not None:
+        try:
+            score_input = Prompt.ask(
+                "Realism score (1.0-5.0)",
+                default=str(query.realism_score)
+            )
+            new_realism_score = float(score_input)
+            if not (1.0 <= new_realism_score <= 5.0):
+                new_realism_score = query.realism_score
+        except ValueError:
+            pass  # Keep original score if invalid input
+    
+    # Ask for confirmation if changes were made
+    if (new_query_text != query.query_text or 
+        new_answer_fact != query.answer_fact or
+        new_difficulty != query.difficulty or
+        new_realism_score != getattr(query, 'realism_score', None)):
+        
+        if Confirm.ask("Save changes?"):
+            # Update query with new values
+            query.query_text = new_query_text
+            query.answer_fact = new_answer_fact
+            query.difficulty = new_difficulty
+            query.realism_score = new_realism_score
+            return query
+    
+    return None  # No changes or cancelled

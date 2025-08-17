@@ -19,23 +19,37 @@ class LLMProvider(ABC):
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI API provider implementation."""
+    """OpenAI API provider implementation with configurable base URL and model."""
     
-    def __init__(self, api_key: Optional[str] = None):
-        """Initialize OpenAI provider."""
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: Optional[str] = None):
+        """Initialize OpenAI provider.
+        
+        Args:
+            api_key: OpenAI API key (uses OPENAI_API_KEY env var if not provided)
+            base_url: Custom base URL for OpenAI-compatible APIs (uses OPENAI_BASE_URL env var if not provided)  
+            model: Model name to use (uses OPENAI_MODEL env var if not provided, defaults to gpt-3.5-turbo)
+        """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError(
                 "OpenAI API key not found. Set OPENAI_API_KEY environment variable or provide api_key parameter."
             )
         
-        self.client = openai.OpenAI(api_key=self.api_key)
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        
+        # Create client with optional base_url
+        client_kwargs = {"api_key": self.api_key}
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+            
+        self.client = openai.OpenAI(**client_kwargs)
     
     def generate_text(self, prompt: str, **kwargs) -> str:
         """Generate text using OpenAI API."""
-        # Default parameters
+        # Default parameters - use configured model
         params = {
-            "model": "gpt-3.5-turbo",
+            "model": self.model,
             "temperature": 0.7,
             "max_tokens": 500,
             "top_p": 1.0,
@@ -106,7 +120,7 @@ class AzureOpenAIProvider(LLMProvider):
         # Default parameters
         params = {
             "model": self.deployment_name,
-            "temperature": 0.7,
+            # "temperature": 0.7,
             "max_tokens": 500,
             "top_p": 1.0,
         }
@@ -197,6 +211,79 @@ class GitHubModelsProvider(LLMProvider):
             raise RuntimeError(f"Unexpected error calling GitHub Models API: {str(e)}")
 
 
+class OllamaProvider(LLMProvider):
+    """Ollama API provider implementation using OpenAI-compatible endpoint."""
+    
+    def __init__(
+        self, 
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: str = "ollama"  # Required but ignored by Ollama
+    ):
+        """Initialize Ollama provider."""
+        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://csali6s001.net.plm.eds.com:11434")
+        self.model = model or os.getenv("OLLAMA_MODEL", "qwen3:8b")
+        
+        # Ensure base_url ends with /v1/ for OpenAI compatibility
+        if not self.base_url.endswith('/'):
+            self.base_url += '/'
+        if not self.base_url.endswith('v1/'):
+            self.base_url += 'v1/'
+        
+        try:
+            self.client = openai.OpenAI(
+                base_url=self.base_url,
+                api_key=api_key  # Required but ignored by Ollama
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Ollama client: {str(e)}")
+    
+    def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text using Ollama API."""
+        # Default parameters optimized for Ollama
+        params = {
+            "model": self.model,
+            "temperature": 0.7,
+            "top_p": 1.0,
+        }
+        
+        # Override with provided parameters
+        params.update(kwargs)
+        
+        try:
+            response = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. /no_think"
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                **params
+            )
+            
+            generated_text = response.choices[0].message.content
+            if not generated_text:
+                raise ValueError("Empty response from Ollama API")
+            
+            return generated_text.strip()
+            
+        except openai.APIConnectionError:
+            raise RuntimeError(f"Cannot connect to Ollama server at {self.base_url}. Please ensure Ollama is running and accessible.")
+        except openai.APIError as e:
+            # Handle Ollama-specific errors
+            error_msg = str(e)
+            if "model" in error_msg.lower() and "not found" in error_msg.lower():
+                raise ValueError(f"Model '{self.model}' not found on Ollama server. Please ensure the model is pulled: ollama pull {self.model}")
+            else:
+                raise RuntimeError(f"Ollama API error: {error_msg}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error calling Ollama API: {str(e)}")
+
+
 def create_llm_provider(provider_type: str = "openai", **kwargs) -> LLMProvider:
     """Factory function to create LLM providers."""
     if provider_type.lower() == "openai":
@@ -205,5 +292,7 @@ def create_llm_provider(provider_type: str = "openai", **kwargs) -> LLMProvider:
         return AzureOpenAIProvider(**kwargs)
     elif provider_type.lower() == "github":
         return GitHubModelsProvider(**kwargs)
+    elif provider_type.lower() == "ollama":
+        return OllamaProvider(**kwargs)
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider_type}. Supported providers: openai, azure, github")
+        raise ValueError(f"Unsupported LLM provider: {provider_type}. Supported providers: openai, azure, github, ollama")

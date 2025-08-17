@@ -3,7 +3,11 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**QGen** is a CLI tool that helps domain experts, product managers, and AI engineers create synthetic queries for any domain or application. The tool leverages LLMs to generate diverse, realistic queries based on user-defined dimensions, following a structured two-stage process.
+**QGen** is a powerful tool that helps domain experts, product managers, and AI engineers create synthetic queries for any domain or application. The tool leverages LLMs to generate diverse, realistic queries based on user-defined dimensions, following a structured two-stage process.
+
+**Available Interfaces:**
+- 🖥️ **Command Line Interface (CLI)** - Full-featured terminal interface
+- 🌐 **Web Interface** - User-friendly browser-based interface (NEW!)
 
 ## 🚀 Quick Start
 
@@ -24,6 +28,19 @@ pip install -e .
 
 ### Create Your First Project
 
+#### 🌐 Web Interface (Easiest)
+```bash
+# Launch the web interface
+qgen web
+
+# Follow the guided interface in your browser
+# 1. Create a new project with a template
+# 2. Generate and review tuples
+# 3. Generate and review queries  
+# 4. Export your dataset
+```
+
+#### 🖥️ Command Line Interface
 ```bash
 # Initialize a new project with a domain template
 qgen init my-chatbot --template question_answering
@@ -54,6 +71,35 @@ That's it! You now have a dataset of synthetic queries ready for your AI project
 - **📤 Multiple Export Formats**: CSV and JSON export with rich metadata
 - **🔌 LLM Integration**: Works with OpenAI, Azure OpenAI, and GitHub Models and extendable to other providers
 - **🎛️ Fully Configurable**: Customize dimensions, prompts, and generation parameters
+- **🌐 Web Interface**: User-friendly browser interface for non-CLI users
+
+## 🌐 Web Interface
+
+QGen now includes a **Streamlit-based web interface** that makes the tool accessible to users who prefer graphical interfaces over command-line tools.
+
+### **Launch Web Interface**
+```bash
+# Launch from anywhere
+qgen web
+
+# Interface opens at http://localhost:8501
+```
+
+### **Web Interface Features**
+- **📁 Project Management**: Create and load projects with guided forms
+- **🎯 Interactive Generation**: Visual progress bars and real-time feedback
+- **✅ Enhanced Review**: Click-to-approve interface with inline editing
+- **📊 Data Visualization**: Statistics dashboard and data preview
+- **📥 One-Click Export**: Direct download buttons for datasets
+- **⚙️ Configuration Display**: Visual environment and settings overview
+
+Perfect for:
+- **Non-technical users** who need a GUI
+- **Rapid prototyping** and experimentation
+- **Collaborative review** sessions
+- **Demonstration** and training purposes
+
+> **Note**: The web interface uses the same core logic as the CLI, so projects created in either interface work seamlessly in both.
 
 ## 📋 Available Domain Templates
 
