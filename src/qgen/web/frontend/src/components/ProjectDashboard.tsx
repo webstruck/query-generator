@@ -91,24 +91,40 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
     }
   }
 
-  const simulateProgress = (statusMessages: string[], duration: number = 5000) => {
-    setProgress({ value: 0, status: statusMessages[0], visible: true })
+  const pollProgress = (operation: string) => {
+    setProgress({ value: 0, status: 'Starting...', visible: true })
     
-    const steps = statusMessages.length
-    const stepDuration = duration / steps
-    let currentStep = 0
-    
-    const interval = setInterval(() => {
-      currentStep++
-      const progressValue = (currentStep / steps) * 100
-      
-      if (currentStep < steps) {
-        setProgress({ value: progressValue, status: statusMessages[currentStep], visible: true })
-      } else {
-        setProgress({ value: 100, status: 'Completing...', visible: true })
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/projects/${project.name}/status/${operation}`)
+        
+        if (response.ok) {
+          const status = await response.json()
+          setProgress({
+            value: status.progress,
+            status: status.message,
+            visible: true
+          })
+          
+          if (status.completed) {
+            clearInterval(interval)
+            setTimeout(() => {
+              setProgress({ value: 0, status: '', visible: false })
+            }, 1000)
+          }
+        } else if (response.status === 404) {
+          // No active generation found - might be completed
+          clearInterval(interval)
+          setTimeout(() => {
+            setProgress({ value: 0, status: '', visible: false })
+          }, 1000)
+        }
+      } catch (error) {
+        console.error('Error polling progress:', error)
         clearInterval(interval)
+        setProgress({ value: 0, status: '', visible: false })
       }
-    }, stepDuration)
+    }, 500) // Poll every 500ms
     
     return () => {
       clearInterval(interval)
@@ -119,14 +135,6 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
   const generateTuples = async () => {
     setLoading(true)
     setGeneratingTuples(true)
-    
-    const cleanup = simulateProgress([
-      'Initializing tuple generation...',
-      'Analyzing dimensions...',
-      'Creating combinations...',
-      'Generating tuples with AI...',
-      'Finalizing results...'
-    ])
     
     try {
       const response = await fetch(`/api/projects/${project.name}/generate/tuples`, {
@@ -145,12 +153,43 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
         throw new Error(error.detail)
       }
 
-      await loadProjectData()
-      showNotification('Tuples generated successfully! 🎯', 'success')
+      // Start polling for progress
+      const cleanup = pollProgress('tuples')
+      
+      // Wait for completion by polling until done
+      const waitForCompletion = setInterval(async () => {
+        try {
+          const statusResponse = await fetch(`/api/projects/${project.name}/status/tuples`)
+          if (statusResponse.ok) {
+            const status = await statusResponse.json()
+            if (status.completed) {
+              clearInterval(waitForCompletion)
+              cleanup()
+              await loadProjectData()
+              showNotification('Tuples generated successfully! 🎯', 'success')
+              setLoading(false)
+              setGeneratingTuples(false)
+            }
+          } else if (statusResponse.status === 404) {
+            // Generation might be complete but status cleared
+            clearInterval(waitForCompletion)
+            cleanup()
+            await loadProjectData()
+            showNotification('Tuples generated successfully! 🎯', 'success')
+            setLoading(false)
+            setGeneratingTuples(false)
+          }
+        } catch (error) {
+          clearInterval(waitForCompletion)
+          cleanup()
+          showNotification(`Generation error: ${error}`, 'error')
+          setLoading(false)
+          setGeneratingTuples(false)
+        }
+      }, 1000)
+      
     } catch (error) {
-      showNotification(`Failed to generate tuples: ${error}`, 'error')
-    } finally {
-      cleanup()
+      showNotification(`Failed to start tuple generation: ${error}`, 'error')
       setLoading(false)
       setGeneratingTuples(false)
     }
@@ -187,14 +226,6 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
     setLoading(true)  
     setGeneratingQueries(true)
     
-    const cleanup = simulateProgress([
-      'Loading approved tuples...',
-      'Preparing query templates...',
-      'Generating queries with AI...',
-      'Processing natural language...',
-      'Finalizing query dataset...'
-    ], 7000) // Queries take longer
-    
     try {
       const response = await fetch(`/api/projects/${project.name}/generate/queries`, {
         method: 'POST',
@@ -212,13 +243,45 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
         throw new Error(error.detail)
       }
 
-      await loadProjectData()
-      setActiveTab('queries') // Switch to queries tab
-      showNotification('Queries generated successfully! 📝', 'success')
+      // Start polling for progress
+      const cleanup = pollProgress('queries')
+      
+      // Wait for completion by polling until done
+      const waitForCompletion = setInterval(async () => {
+        try {
+          const statusResponse = await fetch(`/api/projects/${project.name}/status/queries`)
+          if (statusResponse.ok) {
+            const status = await statusResponse.json()
+            if (status.completed) {
+              clearInterval(waitForCompletion)
+              cleanup()
+              await loadProjectData()
+              setActiveTab('queries') // Switch to queries tab
+              showNotification('Queries generated successfully! 📝', 'success')
+              setLoading(false)
+              setGeneratingQueries(false)
+            }
+          } else if (statusResponse.status === 404) {
+            // Generation might be complete but status cleared
+            clearInterval(waitForCompletion)
+            cleanup()
+            await loadProjectData()
+            setActiveTab('queries') // Switch to queries tab
+            showNotification('Queries generated successfully! 📝', 'success')
+            setLoading(false)
+            setGeneratingQueries(false)
+          }
+        } catch (error) {
+          clearInterval(waitForCompletion)
+          cleanup()
+          showNotification(`Generation error: ${error}`, 'error')
+          setLoading(false)
+          setGeneratingQueries(false)
+        }
+      }, 1000)
+      
     } catch (error) {
-      showNotification(`Failed to generate queries: ${error}`, 'error')
-    } finally {
-      cleanup()
+      showNotification(`Failed to start query generation: ${error}`, 'error')
       setLoading(false)
       setGeneratingQueries(false)
     }

@@ -4,6 +4,8 @@
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -40,6 +42,37 @@ ensure_environment_loaded(verbose=False)
 # Get user's working directory from environment variable
 USER_CWD = os.environ.get('QGEN_USER_CWD', os.getcwd())
 
+# Global status tracking for generation processes
+generation_status = {}
+status_lock = threading.Lock()
+
+def update_generation_status(project_name: str, operation: str, current: int, total: int, message: str):
+    """Update generation status for a project."""
+    with status_lock:
+        key = f"{project_name}_{operation}"
+        generation_status[key] = {
+            "operation": operation,
+            "current": current,
+            "total": total,
+            "message": message,
+            "progress": (current / total * 100) if total > 0 else 0,
+            "completed": current >= total,
+            "timestamp": time.time()
+        }
+
+def get_generation_status(project_name: str, operation: str):
+    """Get current generation status for a project operation."""
+    with status_lock:
+        key = f"{project_name}_{operation}"
+        return generation_status.get(key)
+
+def clear_generation_status(project_name: str, operation: str):
+    """Clear generation status for a project operation."""
+    with status_lock:
+        key = f"{project_name}_{operation}"
+        if key in generation_status:
+            del generation_status[key]
+
 def get_project_path(project_name: str) -> Path:
     """Get the full path to a project in the user's working directory."""
     return Path(USER_CWD) / project_name
@@ -66,6 +99,89 @@ class QueryUpdateRequest(BaseModel):
     status: str
     text: Optional[str] = None
 
+# Background task functions
+
+def background_generate_tuples(project_name: str, project_path: Path, config: ProjectConfig, count: int, provider: str):
+    """Background task for tuple generation with progress tracking."""
+    try:
+        # Initialize status
+        update_generation_status(project_name, "tuples", 0, count, "Initializing tuple generation...")
+        
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            # We'll need to modify core generation to provide progress callbacks
+            # For now, simulate progress updates during generation
+            update_generation_status(project_name, "tuples", 1, count, "Processing dimensions...")
+            
+            tuples = core_generate_tuples(config=config, count=count, provider_type=provider)
+            
+            if tuples:
+                # Update progress to completion
+                update_generation_status(project_name, "tuples", len(tuples), count, f"Generated {len(tuples)} tuples")
+                
+                # Save tuples
+                data_manager = get_data_manager(str(project_path))
+                data_manager.save_tuples(tuples, "generated", {"provider": provider, "count_requested": count})
+                
+                # Mark as completed
+                update_generation_status(project_name, "tuples", len(tuples), len(tuples), f"Completed: {len(tuples)} tuples generated")
+            else:
+                update_generation_status(project_name, "tuples", 0, count, "Error: No tuples generated")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "tuples", 0, count, f"Error: {str(e)}")
+
+def background_generate_queries(project_name: str, project_path: Path, config: ProjectConfig, approved_tuples, queries_per_tuple: int, provider: str):
+    """Background task for query generation with progress tracking."""
+    try:
+        total_queries = len(approved_tuples) * queries_per_tuple
+        
+        # Initialize status
+        update_generation_status(project_name, "queries", 0, total_queries, "Initializing query generation...")
+        
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            update_generation_status(project_name, "queries", 1, total_queries, "Processing approved tuples...")
+            
+            queries = core_generate_queries(
+                config=config, 
+                tuples=approved_tuples, 
+                queries_per_tuple=queries_per_tuple,
+                provider_type=provider
+            )
+            
+            if queries:
+                # Update progress to completion
+                update_generation_status(project_name, "queries", len(queries), total_queries, f"Generated {len(queries)} queries")
+                
+                # Save queries
+                data_manager = get_data_manager(str(project_path))
+                data_manager.save_queries(queries, "generated", {
+                    "provider": provider,
+                    "queries_per_tuple": queries_per_tuple,
+                    "total_tuples": len(approved_tuples)
+                })
+                
+                # Mark as completed
+                update_generation_status(project_name, "queries", len(queries), len(queries), f"Completed: {len(queries)} queries generated")
+            else:
+                update_generation_status(project_name, "queries", 0, total_queries, "Error: No queries generated")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "queries", 0, total_queries, f"Error: {str(e)}")
+
 # API Routes
 
 @app.get("/api/health")
@@ -87,6 +203,14 @@ async def get_providers():
 async def get_templates():
     """Get available project templates."""
     return {"templates": list_available_domains()}
+
+@app.get("/api/projects/{project_name}/status/{operation}")
+async def get_generation_status_endpoint(project_name: str, operation: str):
+    """Get generation status for a project operation."""
+    status = get_generation_status(project_name, operation)
+    if not status:
+        raise HTTPException(status_code=404, detail="No active generation found")
+    return status
 
 @app.post("/api/projects")
 async def create_project(request: ProjectCreateRequest):
@@ -248,26 +372,19 @@ async def generate_tuples(project_name: str, request: TupleGenerationRequest, ba
         if not provider:
             raise HTTPException(status_code=400, detail="No LLM provider available")
         
-        # Change to project directory for generation
-        original_cwd = os.getcwd()
-        os.chdir(project_path)
+        # Clear any existing status for this operation
+        clear_generation_status(project_name, "tuples")
         
-        try:
-            tuples = core_generate_tuples(config=config, count=request.count, provider_type=provider)
-        finally:
-            os.chdir(original_cwd)
-        
-        if not tuples:
-            raise HTTPException(status_code=500, detail="No tuples generated")
-        
-        # Save tuples
-        data_manager = get_data_manager(str(project_path))
-        data_manager.save_tuples(tuples, "generated", {"provider": provider, "count_requested": request.count})
+        # Start generation in background
+        background_tasks.add_task(
+            background_generate_tuples,
+            project_name, project_path, config, request.count, provider
+        )
         
         return {
-            "message": f"Generated {len(tuples)} tuples",
-            "count": len(tuples),
-            "tuples": [{"values": t.values} for t in tuples]
+            "message": "Tuple generation started",
+            "status": "started",
+            "count_requested": request.count
         }
         
     except Exception as e:
@@ -312,7 +429,7 @@ async def save_tuples(project_name: str, stage: str, tuples_data: Dict[str, Any]
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/projects/{project_name}/generate/queries")
-async def generate_queries(project_name: str, request: QueryGenerationRequest):
+async def generate_queries(project_name: str, request: QueryGenerationRequest, background_tasks: BackgroundTasks):
     """Generate queries from approved tuples."""
     try:
         project_path = get_project_path(project_name)
@@ -332,42 +449,19 @@ async def generate_queries(project_name: str, request: QueryGenerationRequest):
         if not provider:
             raise HTTPException(status_code=400, detail="No LLM provider available")
         
-        # Change to project directory for generation
-        original_cwd = os.getcwd()
-        os.chdir(project_path)
+        # Clear any existing status for this operation
+        clear_generation_status(project_name, "queries")
         
-        try:
-            queries = core_generate_queries(
-                config=config, 
-                tuples=approved_tuples, 
-                queries_per_tuple=request.queries_per_tuple,
-                provider_type=provider
-            )
-        finally:
-            os.chdir(original_cwd)
-        
-        if not queries:
-            raise HTTPException(status_code=500, detail="No queries generated")
-        
-        # Save queries
-        data_manager.save_queries(queries, "generated", {
-            "provider": provider,
-            "queries_per_tuple": request.queries_per_tuple,
-            "total_tuples": len(approved_tuples)
-        })
+        # Start generation in background
+        background_tasks.add_task(
+            background_generate_queries,
+            project_name, project_path, config, approved_tuples, request.queries_per_tuple, provider
+        )
         
         return {
-            "message": f"Generated {len(queries)} queries",
-            "count": len(queries),
-            "queries": [
-                {
-                    "id": i,
-                    "text": q.generated_text,
-                    "status": q.status,
-                    "tuple_data": q.tuple_data.values
-                }
-                for i, q in enumerate(queries)
-            ]
+            "message": "Query generation started",
+            "status": "started",
+            "expected_count": len(approved_tuples) * request.queries_per_tuple
         }
         
     except Exception as e:
