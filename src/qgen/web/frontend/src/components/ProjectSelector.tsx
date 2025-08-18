@@ -101,13 +101,10 @@ export default function ProjectSelector({ onProjectSelect, loading, setLoading }
   return (
     <div className="max-w-6xl mx-auto px-4">
       {/* Hero Section with Getting Started */}
-      <div className="text-center mb-12 py-8">
-        <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-6">
-          <span className="text-white text-2xl">🔍</span>
-        </div>
+      <div className="text-center mb-6 py-4">
         <h2 className="text-4xl font-bold text-gray-900 mb-4">Welcome to QGen</h2>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
-          Generate synthetic queries for any domain using LLMs - systematic, scalable, and ready for production
+        <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-6">
+          Generate synthetic queries for any domain using LLMs
         </p>
         
         {/* Getting Started - Horizontal Layout */}

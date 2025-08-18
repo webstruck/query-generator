@@ -450,23 +450,67 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Project Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-lg shadow">
-              <div className="text-2xl font-bold text-blue-600">{projectData.data_status.generated_tuples}</div>
-              <div className="text-sm text-gray-600">Generated Tuples</div>
+          {/* Provider Selection and Stats */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Provider Settings */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <span className="mr-2">🔧</span>
+                LLM Provider
+              </h3>
+              <div className="space-y-4">
+                <select
+                  value={selectedProvider}
+                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {providers.available.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {provider}
+                      {provider === providers.auto_detected && ' (Auto-detected)'}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">
+                  Selected provider will be used for tuple and query generation
+                </p>
+              </div>
             </div>
-            <div className="bg-white p-4 rounded-lg shadow">
-              <div className="text-2xl font-bold text-green-600">{projectData.data_status.approved_tuples}</div>
-              <div className="text-sm text-gray-600">Approved Tuples</div>
+
+            {/* Tuples Stats */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <span className="mr-2">🎯</span>
+                Tuples
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Generated</span>
+                  <span className="text-2xl font-bold text-blue-600">{projectData.data_status.generated_tuples}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Approved</span>
+                  <span className="text-2xl font-bold text-green-600">{projectData.data_status.approved_tuples}</span>
+                </div>
+              </div>
             </div>
-            <div className="bg-white p-4 rounded-lg shadow">
-              <div className="text-2xl font-bold text-purple-600">{projectData.data_status.generated_queries}</div>
-              <div className="text-sm text-gray-600">Generated Queries</div>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow">
-              <div className="text-2xl font-bold text-emerald-600">{projectData.data_status.approved_queries}</div>
-              <div className="text-sm text-gray-600">Approved Queries</div>
+
+            {/* Queries Stats */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <span className="mr-2">📝</span>
+                Queries
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Generated</span>
+                  <span className="text-2xl font-bold text-purple-600">{projectData.data_status.generated_queries}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Approved</span>
+                  <span className="text-2xl font-bold text-emerald-600">{projectData.data_status.approved_queries}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -564,33 +608,6 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
                 >
                   📊 Export
                 </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Provider Selection */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">🔧 Provider Settings</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  LLM Provider
-                </label>
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {providers.available.map((provider) => (
-                    <option key={provider} value={provider}>
-                      {provider}
-                      {provider === providers.auto_detected && ' (Auto-detected)'}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Selected provider will be used for tuple and query generation
-                </p>
               </div>
             </div>
           </div>
