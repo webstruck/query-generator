@@ -42,8 +42,7 @@ def load_project_config(directory: str = ".") -> ProjectConfig:
     
     # Load technical configuration (optional)
     llm_params = {
-        "temperature": 0.7,
-        "max_tokens": 150,
+        "temperature": 1,
         "top_p": 1.0
     }
     prompt_template_paths = {

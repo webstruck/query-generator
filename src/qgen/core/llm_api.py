@@ -50,8 +50,7 @@ class OpenAIProvider(LLMProvider):
         # Default parameters - use configured model
         params = {
             "model": self.model,
-            "temperature": 0.7,
-            "max_tokens": 500,
+            "temperature": 1,
             "top_p": 1.0,
         }
         
@@ -120,13 +119,19 @@ class AzureOpenAIProvider(LLMProvider):
         # Default parameters
         params = {
             "model": self.deployment_name,
-            # "temperature": 0.7,
-            "max_tokens": 500,
+            "temperature": 1,
             "top_p": 1.0,
         }
         
         # Override with provided parameters
         params.update(kwargs)
+        
+        # Handle parameter compatibility: convert max_tokens to max_completion_tokens for newer models
+        if "max_tokens" in params and "max_completion_tokens" not in params:
+            params["max_completion_tokens"] = params.pop("max_tokens")
+        
+        # Handle temperature restrictions: some Azure models only support temperature=1
+        # We'll let the API return the error rather than silently changing user's intent
         
         try:
             response = self.client.chat.completions.create(
@@ -139,9 +144,19 @@ class AzureOpenAIProvider(LLMProvider):
                 **params
             )
             
-            generated_text = response.choices[0].message.content
-            if not generated_text:
-                raise ValueError("Empty response from Azure OpenAI API")
+            # Better error handling for response parsing
+            if not response.choices:
+                raise ValueError("Azure OpenAI API returned no choices in response")
+            
+            choice = response.choices[0]
+            if not hasattr(choice, 'message') or not choice.message:
+                raise ValueError("Azure OpenAI API returned choice without message")
+                
+            generated_text = choice.message.content
+            if generated_text is None:
+                raise ValueError("Azure OpenAI API returned None content")
+            if generated_text == "":
+                raise ValueError("Azure OpenAI API returned empty string content")
             
             return generated_text.strip()
             
@@ -177,7 +192,6 @@ class GitHubModelsProvider(LLMProvider):
         params = {
             "model": "openai/gpt-4o",  # Default to GPT-4o via GitHub Models
             "temperature": 0.7,
-            "max_tokens": 500,
             "top_p": 1.0,
         }
         

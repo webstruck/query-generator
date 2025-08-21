@@ -40,8 +40,6 @@ class ProjectConfig(BaseModel):
     example_queries: List[str] = Field(default_factory=list, description="Example queries for few-shot learning")
     llm_params: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "temperature": 0.7,
-            "max_tokens": 150,
             "top_p": 1.0
         },
         description="LLM generation parameters"

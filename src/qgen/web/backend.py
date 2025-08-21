@@ -350,7 +350,7 @@ async def update_dimensions(project_name: str, dimensions: List[DimensionRequest
         
         # Update and save config
         config.dimensions = new_dimensions
-        save_project_config(str(project_path), config)
+        save_project_config(config, str(project_path))
         
         return {"message": "Dimensions updated successfully"}
         

@@ -245,7 +245,6 @@ Customize generation in your project's `config.yml`:
 ```yaml
 llm_params:
   temperature: 0.7
-  max_tokens: 150
   top_p: 1.0
 ```
 
