@@ -16,6 +16,20 @@ class ChunkProcessor:
         self.processed_chunks: List[ChunkData] = []
         self.chunk_ids: Set[str] = set()
     
+    def load_chunks_from_file(self, file_path: Path) -> List[ChunkData]:
+        """Load and validate a single JSONL file."""
+        chunks = self._load_jsonl_file(file_path)
+        # For single file, we can't validate cross-references to other files
+        # But we can validate internal references within the same file
+        chunk_ids_in_file = {chunk.chunk_id for chunk in chunks}
+        for chunk in chunks:
+            if chunk.related_chunks:
+                for related_id in chunk.related_chunks:
+                    if related_id not in chunk_ids_in_file:
+                        # Just warn, don't fail - the reference might be in another file
+                        console.print(f"[yellow]⚠️ Chunk {chunk.chunk_id} references chunk {related_id} not in this file[/yellow]")
+        return chunks
+    
     def load_chunks_from_directory(self, chunks_dir: Path) -> List[ChunkData]:
         """Load and validate all JSONL files in chunks directory."""
         chunks = []

@@ -359,6 +359,17 @@ def review_queries(queries: List[RAGQuery], chunks_map: Dict[str, ChunkData]) ->
     console.print(f"[dim]Reviewing {len(queries)} generated queries[/dim]")
     console.print("[dim]Commands: [bold](a)[/bold]pprove, [bold](r)[/bold]eject, [bold](e)[/bold]dit, [bold](s)[/bold]kip, [bold](q)[/bold]uit[/dim]\n")
     
+    # Load original facts for multi-hop highlighting
+    facts_map = {}
+    try:
+        from qgen.core.rag_generation import FactDataManager
+        fact_manager = FactDataManager()
+        approved_facts = fact_manager.load_facts("approved")
+        facts_map = {fact.chunk_id: fact for fact in approved_facts}
+        console.print(f"[dim]✅ Loaded {len(facts_map)} facts for enhanced highlighting[/dim]")
+    except Exception as e:
+        console.print(f"[dim]⚠️  Could not load facts for highlighting: {e}[/dim]")
+    
     approved_queries = []
     
     for i, query in enumerate(queries, 1):
@@ -392,19 +403,27 @@ def review_queries(queries: List[RAGQuery], chunks_map: Dict[str, ChunkData]) ->
             for chunk_idx, chunk_id in enumerate(query.source_chunk_ids, 1):
                 chunk = chunks_map.get(chunk_id)
                 if chunk:
-                    # Use cached embeddings to highlight relevant text based on the answer fact
+                    # Use cached embeddings to highlight relevant text based on original fact
                     try:
                         from qgen.core.rag_models import ExtractedFact
                         
-                        # Create a temporary fact object for highlighting
-                        temp_fact = ExtractedFact(
-                            fact_text=query.answer_fact,
-                            chunk_id=chunk_id,
-                            extraction_confidence=1.0  # Dummy confidence for highlighting
-                        )
+                        # Try to use original fact for this chunk, fallback to answer fact
+                        original_fact = facts_map.get(chunk_id)
+                        if original_fact:
+                            # Use the original extracted fact for this specific chunk
+                            highlighting_fact = original_fact
+                            highlight_source = "original fact"
+                        else:
+                            # Fallback: create temporary fact using answer fact
+                            highlighting_fact = ExtractedFact(
+                                fact_text=query.answer_fact,
+                                chunk_id=chunk_id,
+                                extraction_confidence=1.0
+                            )
+                            highlight_source = "answer fact"
                         
-                        # Get highlighted text using cached embeddings
-                        highlighted_text = temp_fact.get_chunk_with_highlight(chunk.text)
+                        # Get highlighted text using the appropriate fact
+                        highlighted_text = highlighting_fact.get_chunk_with_highlight(chunk.text)
                         
                         # For multi-hop, show chunk number in title
                         title_suffix = ""
@@ -413,13 +432,13 @@ def review_queries(queries: List[RAGQuery], chunks_map: Dict[str, ChunkData]) ->
                         
                         chunk_panel = Panel(
                             highlighted_text,
-                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix} (with highlighting)",
+                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix} (highlighting: {highlight_source})",
                             border_style="dim",
                             padding=(1, 2)
                         )
                         console.print(chunk_panel)
                         
-                    except Exception:
+                    except Exception as e:
                         # Fallback to plain text if highlighting fails
                         title_suffix = ""
                         if len(query.source_chunk_ids) > 1:
@@ -427,7 +446,7 @@ def review_queries(queries: List[RAGQuery], chunks_map: Dict[str, ChunkData]) ->
                         
                         chunk_panel = Panel(
                             chunk.text,
-                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix}",
+                            title=f"Source: {chunk.source_document or 'Unknown'}{title_suffix} (highlighting failed: {str(e)[:50]}...)",
                             border_style="dim",
                             padding=(1, 2)
                         )

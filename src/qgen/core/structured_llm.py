@@ -4,6 +4,8 @@ from typing import Type, TypeVar, Any, Dict, Optional
 import instructor
 from openai import OpenAI
 from pydantic import BaseModel
+from tenacity import retry_if_exception_type, wait_exponential, stop_after_attempt
+from rich.console import Console
 
 from .llm_api import create_llm_provider
 from .env import (
@@ -17,7 +19,14 @@ from .env import (
     has_ollama_config
 )
 
+
+class RateLimitExceededException(Exception):
+    """Raised when API rate limits are exceeded."""
+    pass
+
 T = TypeVar('T', bound=BaseModel)
+
+console = Console()
 
 
 class StructuredLLMProvider:
@@ -138,8 +147,13 @@ class StructuredLLMProvider:
         # Merge with user parameters
         final_params = {**default_params, **llm_params}
         
-        # Generate structured response
+        # Generate structured response with centralized retry logic
+        # Add default max_retries if not specified
+        if 'max_retries' not in final_params:
+            final_params['max_retries'] = 3
+            
         try:
+            console.print("[dim]Making LLM request...[/dim]")
             response = self.client.chat.completions.create(
                 model=model_name,
                 response_model=response_model,
@@ -151,9 +165,17 @@ class StructuredLLMProvider:
         except Exception as e:
             error_msg = str(e).lower()
             
+            # Check for rate limiting errors
+            if ("rate limit" in error_msg or "429" in error_msg or "quota" in error_msg):
+                console.print(f"[yellow]⚠️  Rate limit encountered with {model_name}. Retries should be handled automatically by instructor.[/yellow]")
+                console.print(f"[dim]Original error: {str(e)}[/dim]")
+                raise RateLimitExceededException(f"Rate limit exceeded for model {model_name}. Please wait a moment and try again, or consider switching to a different provider.")
+            
             # Check if this is the "multiple tool calls" error indicating we need JSON mode
-            if ("instructor does not support multiple tool calls" in error_msg or 
+            elif ("instructor does not support multiple tool calls" in error_msg or 
                 "does not support multiple tool calls" in error_msg):
+                
+                console.print(f"[blue]🔄 Switching to JSON mode for {model_name}...[/blue]")
                 
                 # Remember this model needs JSON mode for future calls
                 self._remember_json_mode(model_name)
@@ -165,6 +187,7 @@ class StructuredLLMProvider:
                     client_kwargs["base_url"] = self.provider_info.get("base_url")
                 
                 raw_client = OpenAI(**client_kwargs)
+                
                 json_client = instructor.from_openai(raw_client, mode=instructor.Mode.JSON)
                 
                 response = json_client.chat.completions.create(
@@ -176,6 +199,7 @@ class StructuredLLMProvider:
                 return response
             else:
                 # Re-raise other errors with more context
+                console.print(f"[red]❌ LLM request failed: {str(e)}[/red]")
                 raise RuntimeError(f"Failed to generate structured response with model {model_name}: {str(e)}")
     
     def generate_text(self, prompt: str, **llm_params) -> str:

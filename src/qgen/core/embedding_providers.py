@@ -1,12 +1,21 @@
 """Embedding provider abstraction for different embedding models."""
 
+# Set SSL certificates early - before any network imports
+import os
+import certifi
+
+# Configure SSL certificate environment variables globally
+cert_file = certifi.where()
+os.environ['SSL_CERT_FILE'] = cert_file
+os.environ['REQUESTS_CA_BUNDLE'] = cert_file
+os.environ['CURL_CA_BUNDLE'] = cert_file
+
 from abc import ABC, abstractmethod
 from typing import List, Union, Optional, Any
 import threading
 import numpy as np
 import hashlib
 import pickle
-import os
 from pathlib import Path
 
 
@@ -137,13 +146,33 @@ class Model2VecProvider(BaseEmbeddingProvider):
             with self._lock:
                 if self._model is None:
                     try:
+                        # Apply SSL fix globally
+                        self._apply_ssl_fix()
+                        
                         from model2vec import StaticModel
                         self._model = StaticModel.from_pretrained(self.model_name)
+                            
                     except ImportError:
                         raise ImportError("model2vec not installed. Install with: pip install model2vec")
                     except Exception as e:
                         raise RuntimeError(f"Failed to load model2vec model '{self.model_name}': {e}")
         return self._model
+    
+    def _apply_ssl_fix(self):
+        """Apply SSL certificate fix using environment variables."""
+        import certifi
+        import os
+        
+        # Set SSL certificate environment variables to certifi bundle
+        cert_file = certifi.where()
+        os.environ['SSL_CERT_FILE'] = cert_file
+        os.environ['REQUESTS_CA_BUNDLE'] = cert_file
+        os.environ['CURL_CA_BUNDLE'] = cert_file
+        
+        print(f"🔧 SSL certificates set to: {cert_file}")
+        print(f"   SSL_CERT_FILE: {os.environ.get('SSL_CERT_FILE')}")
+        print(f"   REQUESTS_CA_BUNDLE: {os.environ.get('REQUESTS_CA_BUNDLE')}")
+        print(f"   CURL_CA_BUNDLE: {os.environ.get('CURL_CA_BUNDLE')}")
         
     def _encode_batch(self, texts: List[str]) -> np.ndarray:
         """Encode texts using model2vec static embeddings."""
@@ -178,13 +207,33 @@ class SentenceTransformerProvider(BaseEmbeddingProvider):
             with self._lock:
                 if self._model is None:
                     try:
+                        # Apply SSL fix globally
+                        self._apply_ssl_fix()
+                        
                         from sentence_transformers import SentenceTransformer
                         self._model = SentenceTransformer(self.model_name)
+                            
                     except ImportError:
                         raise ImportError("sentence-transformers not installed. Install with: pip install sentence-transformers")
                     except Exception as e:
                         raise RuntimeError(f"Failed to load sentence-transformer model '{self.model_name}': {e}")
         return self._model
+    
+    def _apply_ssl_fix(self):
+        """Apply SSL certificate fix using environment variables."""
+        import certifi
+        import os
+        
+        # Set SSL certificate environment variables to certifi bundle
+        cert_file = certifi.where()
+        os.environ['SSL_CERT_FILE'] = cert_file
+        os.environ['REQUESTS_CA_BUNDLE'] = cert_file
+        os.environ['CURL_CA_BUNDLE'] = cert_file
+        
+        print(f"🔧 SSL certificates set to: {cert_file}")
+        print(f"   SSL_CERT_FILE: {os.environ.get('SSL_CERT_FILE')}")
+        print(f"   REQUESTS_CA_BUNDLE: {os.environ.get('REQUESTS_CA_BUNDLE')}")
+        print(f"   CURL_CA_BUNDLE: {os.environ.get('CURL_CA_BUNDLE')}")
         
     def _encode_batch(self, texts: List[str]) -> np.ndarray:
         """Encode texts using sentence transformers."""
@@ -202,6 +251,7 @@ class SentenceTransformerProvider(BaseEmbeddingProvider):
             return True
         except ImportError:
             return False
+
 
 
 

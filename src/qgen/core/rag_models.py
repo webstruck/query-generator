@@ -78,6 +78,9 @@ class ExtractedFact(BaseModel):
         Returns:
             Chunk text with matching sentences highlighted
         """
+        print(f"🚀 ENTERING get_chunk_with_highlight for fact: '{self.fact_text[:50]}...'")
+        print(f"🚀 Chunk text length: {len(chunk_text)}, Threshold: {similarity_threshold}")
+        
         try:
             from .embedding_providers import EmbeddingProviderFactory
             import numpy as np
@@ -90,15 +93,46 @@ class ExtractedFact(BaseModel):
             if not sentences:
                 return chunk_text
             
-            # Get embedding provider with caching
+            # Get embedding provider with fallback
             cache_dir = os.path.join(os.getcwd(), "cache", "embeddings")
-            provider = EmbeddingProviderFactory.get_default_provider(cache_dir=cache_dir)
-            print(f"🔧 Using embedding provider: {provider.__class__.__name__}")
+            provider = None
+            fact_embedding = None
+            sentence_embeddings = None
             
-            # Generate embeddings
-            fact_embedding = provider.encode([self.fact_text])
-            sentence_embeddings = provider.encode(sentences)
-            print(f"📊 Generated embeddings - fact: {fact_embedding.shape}, sentences: {sentence_embeddings.shape}")
+            # Try Model2Vec first
+            try:
+                provider = EmbeddingProviderFactory.get_default_provider(cache_dir=cache_dir)
+                print(f"🔧 Using embedding provider: {provider.__class__.__name__}")
+                
+                # Generate embeddings
+                print(f"🔄 Generating embeddings with {provider.__class__.__name__} for fact and {len(sentences)} sentences...")
+                fact_embedding = provider.encode([self.fact_text])
+                print(f"✅ Fact embedding generated: {fact_embedding.shape}")
+                sentence_embeddings = provider.encode(sentences)
+                print(f"✅ Sentence embeddings generated: {sentence_embeddings.shape}")
+                print(f"📊 Generated embeddings - fact: {fact_embedding.shape}, sentences: {sentence_embeddings.shape}")
+                
+            except Exception as model2vec_error:
+                print(f"⚠️ Model2Vec embedding failed: {model2vec_error}")
+                print(f"🔄 Trying sentence-transformers fallback...")
+                
+                try:
+                    provider = EmbeddingProviderFactory.create_provider("sentence-transformers", cache_dir=cache_dir)
+                    print(f"✅ Using fallback provider: {provider.__class__.__name__}")
+                    
+                    # Generate embeddings with sentence-transformers
+                    print(f"🔄 Generating embeddings with {provider.__class__.__name__} for fact and {len(sentences)} sentences...")
+                    fact_embedding = provider.encode([self.fact_text])
+                    print(f"✅ Fact embedding generated: {fact_embedding.shape}")
+                    sentence_embeddings = provider.encode(sentences)
+                    print(f"✅ Sentence embeddings generated: {sentence_embeddings.shape}")
+                    print(f"📊 Generated embeddings - fact: {fact_embedding.shape}, sentences: {sentence_embeddings.shape}")
+                    
+                except Exception as sentence_transformers_error:
+                    print(f"❌ Sentence-transformers fallback also failed: {sentence_transformers_error}")
+                    print(f"❌ Error type: {type(sentence_transformers_error).__name__}")
+                    # Return original text without highlighting if all embedding methods fail
+                    return chunk_text
             
             # Calculate similarities and highlight sentences above threshold
             highlighted_text = chunk_text
@@ -106,6 +140,8 @@ class ExtractedFact(BaseModel):
             print(f"🔍 DEBUG: Highlighting with threshold {similarity_threshold}")
             print(f"📄 Fact text: '{self.fact_text}'")
             print(f"📄 Chunk sentences ({len(sentences)}):")
+            
+            max_similarity = 0.0
             
             for i, sent_emb in enumerate(sentence_embeddings):
                 # Cosine similarity
@@ -115,6 +151,9 @@ class ExtractedFact(BaseModel):
                 
                 sentence = sentences[i]
                 print(f"  {i+1}: '{sentence}' -> similarity: {similarity:.4f} {'✅ HIGHLIGHT' if similarity >= similarity_threshold else '❌ skip'}")
+                
+                # Track maximum similarity
+                max_similarity = max(max_similarity, similarity)
                 
                 # Highlight if above threshold
                 if similarity >= similarity_threshold:
@@ -136,6 +175,8 @@ class ExtractedFact(BaseModel):
                     else:
                         print(f"    ❌ Failed to replace sentence {i+1} in text")
             
+            # Summary
+            print(f"📊 SUMMARY: Max similarity: {max_similarity:.4f}, Threshold: {similarity_threshold}")
             print(f"🎯 Final result has highlighting: {'[bold yellow on blue]' in highlighted_text}")
             
             # Test what would happen with different thresholds
@@ -188,6 +229,8 @@ class RAGQuery(BaseModel):
     reasoning: Optional[str] = None  # LLM reasoning for generation
     generated_at: datetime = Field(default_factory=datetime.now)
     status: str = "pending"  # "pending", "approved", "rejected"
+    quality_metadata: Optional[Dict[str, Any]] = None  # Quality filtering metadata
+    generation_metadata: Optional[Dict[str, Any]] = None  # Generation process metadata
 
 
 class RAGConfig(BaseModel):
@@ -208,7 +251,7 @@ class RAGConfig(BaseModel):
     min_realism_score: float = 3.5
     
     # Embedding settings
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "model2vec"
     embedding_batch_size: int = 32
     cache_embeddings: bool = True
     

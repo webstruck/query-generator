@@ -1,14 +1,8 @@
 import { useState, useEffect } from 'react'
 import QueryReview from './QueryReview'
 import TupleReview from './TupleReview'
-import { useNotification } from './Notification'
-
-interface Project {
-  name: string
-  path: string
-  domain: string
-  dimensions_count: number
-}
+import { useNotification } from '../shared/Notification'
+import { type DimensionProject } from '../ProjectSelector'
 
 interface ProjectData {
   name: string
@@ -27,13 +21,13 @@ interface ProjectData {
   }
 }
 
-interface ProjectDashboardProps {
-  project: Project
+interface DimensionProjectDashboardProps {
+  project: DimensionProject
   loading: boolean
   setLoading: (loading: boolean) => void
 }
 
-export default function ProjectDashboard({ project, loading, setLoading }: ProjectDashboardProps) {
+export default function DimensionProjectDashboard({ project, loading, setLoading }: DimensionProjectDashboardProps) {
   const [projectData, setProjectData] = useState<ProjectData | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [providers, setProviders] = useState<{available: string[], auto_detected: string}>({available: [], auto_detected: ''})
@@ -41,8 +35,7 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
   const [editingDimensions, setEditingDimensions] = useState(false)
   const [tempDimensions, setTempDimensions] = useState<ProjectData['dimensions']>([])
   const [newDimension, setNewDimension] = useState({ name: '', description: '', values: [''] })
-  const [tuples, setTuples] = useState<{values: Record<string, string>}[]>([])
-  const [tuplesStage, setTuplesStage] = useState<'generated' | 'approved'>('generated')
+  const [tuplesStage] = useState<'generated' | 'approved'>('generated')
   const [generatingTuples, setGeneratingTuples] = useState(false)
   const [generatingQueries, setGeneratingQueries] = useState(false)
   const [approvingTuples, setApprovingTuples] = useState(false)
@@ -82,13 +75,8 @@ export default function ProjectDashboard({ project, loading, setLoading }: Proje
   }
 
   const loadTuples = async () => {
-    try {
-      const response = await fetch(`/api/projects/${project.name}/tuples/${tuplesStage}`)
-      const data = await response.json()
-      setTuples(data.tuples || [])
-    } catch (error) {
-      console.error('Failed to load tuples:', error)
-    }
+    // This function can be removed as TupleReview manages its own data
+    // Keeping for compatibility with useEffect
   }
 
   const pollProgress = (operation: string) => {

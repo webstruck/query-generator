@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNotification } from './Notification'
+import { useNotification } from '../shared/Notification'
 
 interface Tuple {
   values: Record<string, string>

@@ -1110,6 +1110,7 @@ min_realism_score: {config.min_realism_score}  # Default: 3.5 (above average)
 
 # Embedding model to use for chunk similarity computation
 # Popular options:
+# - "model2vec" (fastest, static embeddings with automatic fallback) - RECOMMENDED
 # - "sentence-transformers/all-MiniLM-L6-v2" (fast, good balance)
 # - "sentence-transformers/all-mpnet-base-v2" (higher quality, slower)
 # - "sentence-transformers/all-MiniLM-L12-v2" (medium size/quality)
@@ -1223,7 +1224,7 @@ def web():
     """Launch the web interface for qgen."""
     console.print("🚀 [bold green]Launching QGen Web Interface...[/bold green]")
     console.print("🌐 Frontend: [blue]http://localhost:5173[/blue]")
-    console.print("🔧 Backend API: [blue]http://localhost:8000[/blue]")
+    console.print("🔧 Backend API: [blue]http://localhost:8888[/blue]")
     console.print("💡 [dim]Tip: Navigate to your project directory before running for best experience[/dim]")
     console.print("")
     

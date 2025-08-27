@@ -57,7 +57,7 @@ def launch_web_interface():
         
         console.print("✅ Web interface is running!")
         console.print("   Frontend: http://localhost:5173")
-        console.print("   Backend API: http://localhost:8000")
+        console.print("   Backend API: http://localhost:8888")
         console.print("")
         console.print("Press Ctrl+C to stop servers")
         

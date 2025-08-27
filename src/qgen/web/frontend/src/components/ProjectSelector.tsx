@@ -1,46 +1,85 @@
 import { useState, useEffect } from 'react'
+import { useNotification } from './shared/Notification'
 
-interface Project {
+// Base project interface
+interface BaseProject {
   name: string
   path: string
+  created_at?: string
+  last_modified?: string
+}
+
+// Dimension project interface
+interface DimensionProject extends BaseProject {
+  type: 'dimension'
   domain: string
   dimensions_count: number
+  data_status: {
+    generated_tuples: number
+    approved_tuples: number
+    generated_queries: number
+    approved_queries: number
+  }
 }
+
+// RAG project interface
+interface RAGProject extends BaseProject {
+  type: 'rag'
+  domain: string
+  chunks_count: number
+  data_status: {
+    generated_facts: number
+    approved_facts: number
+    generated_queries: number
+    generated_multihop: number
+    approved_queries: number
+  }
+}
+
+// Union type for all project types
+type Project = DimensionProject | RAGProject
 
 interface ProjectSelectorProps {
   onProjectSelect: (project: Project) => void
-  loading: boolean
-  setLoading: (loading: boolean) => void
 }
 
-export default function ProjectSelector({ onProjectSelect, loading, setLoading }: ProjectSelectorProps) {
+export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProps) {
+  const [projectType, setProjectType] = useState<'dimension' | 'rag'>('dimension')
   const [projects, setProjects] = useState<Project[]>([])
-  const [allProjects, setAllProjects] = useState<Project[]>([])
-  const [templates, setTemplates] = useState<string[]>([])
-  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
-  const [selectedTemplate, setSelectedTemplate] = useState('')
-  const [showAllProjectsModal, setShowAllProjectsModal] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  
+  const [newProjectDomain, setNewProjectDomain] = useState('general')
+  const [creating, setCreating] = useState(false)
+  const [templates, setTemplates] = useState<string[]>([])
+  const { showNotification, NotificationContainer } = useNotification()
+
   useEffect(() => {
     loadProjects()
-    loadTemplates()
-  }, [])
+    if (projectType === 'dimension') {
+      loadTemplates()
+    }
+  }, [projectType])
 
   const loadProjects = async () => {
+    setLoading(true)
     try {
-      // Load recent projects (limit 3) for main display
-      const recentResponse = await fetch('/api/projects?limit=3')
-      const recentData = await recentResponse.json()
-      setProjects(recentData.projects)
+      const endpoint = projectType === 'dimension' ? '/api/projects' : '/api/rag-projects'
+      const response = await fetch(endpoint)
+      const data = await response.json()
       
-      // Load all projects for modal
-      const allResponse = await fetch('/api/projects')
-      const allData = await allResponse.json()
-      setAllProjects(allData.projects)
+      // Add type to projects if not present
+      const typedProjects = data.projects.map((p: any) => ({
+        ...p,
+        type: projectType
+      }))
+      
+      setProjects(typedProjects)
     } catch (error) {
       console.error('Failed to load projects:', error)
+      showNotification('Failed to load projects', 'error')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -49,325 +88,288 @@ export default function ProjectSelector({ onProjectSelect, loading, setLoading }
       const response = await fetch('/api/templates')
       const data = await response.json()
       setTemplates(data.templates)
-      setSelectedTemplate(data.templates[0] || '')
+      if (data.templates.length > 0 && !newProjectDomain) {
+        setNewProjectDomain(data.templates[0])
+      }
     } catch (error) {
       console.error('Failed to load templates:', error)
     }
   }
 
-  const createProject = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newProjectName.trim() || !selectedTemplate) return
+  const createProject = async () => {
+    if (!newProjectName.trim()) {
+      showNotification('Please enter a project name', 'error')
+      return
+    }
 
-    setLoading(true)
+    setCreating(true)
     try {
-      const response = await fetch('/api/projects', {
+      const endpoint = projectType === 'dimension' ? '/api/projects' : '/api/rag-projects'
+      const payload = projectType === 'dimension' 
+        ? { name: newProjectName, template: newProjectDomain }
+        : { name: newProjectName, domain: newProjectDomain }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: newProjectName.trim(),
-          template: selectedTemplate
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       })
 
-      if (!response.ok) {
+      if (response.ok) {
+        await response.json()
+        showNotification(`${projectType === 'dimension' ? 'Project' : 'RAG project'} '${newProjectName}' created successfully`, 'success')
+        setShowCreateModal(false)
+        setNewProjectName('')
+        setNewProjectDomain(projectType === 'dimension' ? (templates[0] || 'general') : 'general')
+        loadProjects()
+      } else {
         const error = await response.json()
-        throw new Error(error.detail)
-      }
-
-      // Reload projects and select the new one
-      await loadProjects()
-      const newProject = projects.find(p => p.name === newProjectName.trim())
-      if (newProject) {
-        onProjectSelect(newProject)
+        showNotification(`Failed to create project: ${error.detail}`, 'error')
       }
     } catch (error) {
-      alert(`Failed to create project: ${error}`)
+      console.error('Failed to create project:', error)
+      showNotification('Failed to create project', 'error')
     } finally {
-      setLoading(false)
-      setShowCreateForm(false)
-      setNewProjectName('')
+      setCreating(false)
     }
   }
 
-  // Filter projects based on search query
-  const filteredProjects = allProjects.filter(project =>
-    project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    project.domain.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const getProjectTypeIcon = (type: 'dimension' | 'rag') => {
+    return type === 'dimension' ? '📊' : '🧠'
+  }
+
+  const getProjectStatusSummary = (project: Project) => {
+    if (project.type === 'dimension') {
+      const { data_status } = project
+      if (!data_status) return 'No data available'
+      return `${data_status.approved_queries || 0} queries • ${data_status.approved_tuples || 0} tuples approved`
+    } else {
+      const { data_status } = project
+      if (!data_status) return 'No data available'
+      return `${data_status.approved_queries || 0} queries • ${data_status.approved_facts || 0} facts approved`
+    }
+  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4">
-      {/* Hero Section with Getting Started */}
-      <div className="text-center mb-6 py-4">
-        <h2 className="text-4xl font-bold text-gray-900 mb-4">Welcome to QGen</h2>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-6">
-          Generate synthetic queries for any domain using LLMs
+    <div className="max-w-6xl mx-auto p-6">
+      <NotificationContainer />
+      
+      {/* Header */}
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-4">
+          Welcome to QGen
+        </h1>
+        <p className="text-gray-600 max-w-2xl mx-auto">
+          Generate high-quality synthetic queries for your domain using either dimension-based systematic generation or RAG-based content extraction.
         </p>
-        
-        {/* Getting Started - Horizontal Layout */}
-        <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-2xl border border-gray-100 p-6 max-w-4xl mx-auto">
-          <div className="flex justify-center items-center space-x-8">
-            <div className="text-center group">
-              <div className="w-12 h-12 bg-white border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:shadow-md transition-shadow">
-                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600 font-bold text-xs">1</span>
-                </div>
-              </div>
-              <h4 className="font-semibold text-gray-900 text-sm mb-1">Create or Load</h4>
-              <p className="text-xs text-gray-600">Choose template or existing project</p>
+      </div>
+
+      {/* Project Type Toggle */}
+      <div className="mb-8 flex justify-center">
+        <div className="bg-white rounded-lg p-1 shadow-sm border border-gray-200">
+          <button 
+            className={`px-6 py-3 rounded-md transition-all flex items-center space-x-3 ${
+              projectType === 'dimension' 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+            onClick={() => setProjectType('dimension')}
+          >
+            <span className="text-xl">📊</span>
+            <div className="text-left">
+              <div className="font-medium">Dimension-Based</div>
+              <div className="text-xs opacity-75">Systematic query generation</div>
             </div>
-            
-            <div className="text-gray-400 text-xl">→</div>
-            
-            <div className="text-center group">
-              <div className="w-12 h-12 bg-white border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:shadow-md transition-shadow">
-                <div className="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center">
-                  <span className="text-purple-600 font-bold text-xs">2</span>
-                </div>
-              </div>
-              <h4 className="font-semibold text-gray-900 text-sm mb-1">Generate & Review</h4>
-              <p className="text-xs text-gray-600">Create and refine with AI</p>
+          </button>
+          <button 
+            className={`px-6 py-3 rounded-md transition-all flex items-center space-x-3 ${
+              projectType === 'rag' 
+                ? 'bg-purple-500 text-white shadow-sm' 
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+            onClick={() => setProjectType('rag')}
+          >
+            <span className="text-xl">🧠</span>
+            <div className="text-left">
+              <div className="font-medium">RAG-Based</div>
+              <div className="text-xs opacity-75">Content-driven generation</div>
             </div>
-            
-            <div className="text-gray-400 text-xl">→</div>
-            
-            <div className="text-center group">
-              <div className="w-12 h-12 bg-white border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm group-hover:shadow-md transition-shadow">
-                <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
-                  <span className="text-green-600 font-bold text-xs">3</span>
-                </div>
-              </div>
-              <h4 className="font-semibold text-gray-900 text-sm mb-1">Export Dataset</h4>
-              <p className="text-xs text-gray-600">Download in CSV or JSON</p>
-            </div>
-          </div>
+          </button>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-8">
-        {/* Existing Projects */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-8 hover:shadow-xl transition-shadow">
-          <div className="flex items-center mb-6">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-              📂
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900">Load Existing Project</h3>
-          </div>
-          
-          {projects.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-gray-400 text-2xl">📁</span>
-              </div>
-              <p className="text-gray-500 mb-2">No projects found</p>
-              <p className="text-sm text-gray-400">Navigate to a directory with existing QGen projects</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {projects.map((project) => (
-                <div
-                  key={project.name}
-                  className="group p-5 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 cursor-pointer transition-all duration-200 hover:shadow-md"
-                  onClick={() => onProjectSelect(project)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 group-hover:text-blue-700 transition-colors">{project.name}</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        <span className="inline-flex items-center">
-                          <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
-                          {project.domain} • {project.dimensions_count} dimensions
-                        </span>
-                      </p>
-                    </div>
-                    <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      →
-                    </div>
-                  </div>
-                </div>
-              ))}
-              
-              {/* Browse All Projects Button */}
-              {allProjects.length > 3 && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowAllProjectsModal(true)}
-                    className="w-full text-center py-3 px-4 border border-gray-300 rounded-lg text-gray-600 hover:text-gray-800 hover:border-gray-400 hover:bg-gray-50 transition-colors"
-                  >
-                    Browse All Projects ({allProjects.length - 3} more)
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+      {/* Projects Section */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-semibold text-gray-900 flex items-center space-x-2">
+            <span>{getProjectTypeIcon(projectType)}</span>
+            <span>
+              {projectType === 'dimension' ? 'Dimension Projects' : 'RAG Projects'}
+            </span>
+          </h2>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${
+              projectType === 'dimension'
+                ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                : 'bg-purple-500 hover:bg-purple-600 text-white'
+            }`}
+          >
+            <span>+</span>
+            <span>New Project</span>
+          </button>
         </div>
 
-        {/* Create New Project */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-8 hover:shadow-xl transition-shadow">
-          <div className="flex items-center mb-6">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-              ➕
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900">Create New Project</h3>
-          </div>
-          
-          {!showCreateForm ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-white text-2xl">✨</span>
+        {/* Projects Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg shadow border border-gray-200 p-6">
+                <div className="animate-pulse space-y-3">
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                </div>
               </div>
-              <p className="text-gray-600 mb-6">Start a new query generation project</p>
-              <button
-                onClick={() => setShowCreateForm(true)}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl"
+            ))}
+          </div>
+        ) : projects.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((project) => (
+              <div
+                key={project.name}
+                onClick={() => onProjectSelect(project)}
+                className={`bg-white rounded-lg shadow border border-gray-200 p-6 cursor-pointer transition-all hover:shadow-md hover:border-gray-300 ${
+                  projectType === 'dimension' ? 'hover:border-blue-300' : 'hover:border-purple-300'
+                }`}
               >
-                Create Project
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={createProject} className="space-y-4">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xl">{getProjectTypeIcon(project.type)}</span>
+                    <h3 className="font-semibold text-gray-900">{project.name}</h3>
+                  </div>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    projectType === 'dimension'
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'bg-purple-50 text-purple-700'
+                  }`}>
+                    {project.domain}
+                  </span>
+                </div>
+                
+                <p className="text-sm text-gray-600 mb-4">
+                  {getProjectStatusSummary(project)}
+                </p>
+                
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{project.path.split('/').pop()}</span>
+                  <span>→</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-gray-50 rounded-lg">
+            <span className="text-4xl mb-4 block">{getProjectTypeIcon(projectType)}</span>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              No {projectType} projects yet
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Create your first {projectType} project to get started with query generation.
+            </p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                projectType === 'dimension'
+                  ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                  : 'bg-purple-500 hover:bg-purple-600 text-white'
+              }`}
+            >
+              Create Project
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Create Project Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-4">
+              Create New {projectType === 'dimension' ? 'Dimension' : 'RAG'} Project
+            </h3>
+            
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Project Name
                 </label>
                 <input
                   type="text"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="my-project"
-                  required
+                  placeholder="Enter project name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Template
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {projectType === 'dimension' ? 'Template' : 'Domain'}
                 </label>
                 <select
-                  value={selectedTemplate}
-                  onChange={(e) => setSelectedTemplate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={newProjectDomain}
+                  onChange={(e) => setNewProjectDomain(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  {templates.map((template) => (
-                    <option key={template} value={template}>
-                      {template.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                    </option>
-                  ))}
+                  {projectType === 'dimension' ? (
+                    templates.map((template) => (
+                      <option key={template} value={template}>
+                        {template.charAt(0).toUpperCase() + template.slice(1)}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="general">General</option>
+                      <option value="library">Library</option>
+                      <option value="apartment">Apartment</option>
+                      <option value="software">Software</option>
+                      <option value="healthcare">Healthcare</option>
+                    </>
+                  )}
                 </select>
               </div>
-              
-              <div className="flex space-x-3">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                  {loading ? 'Creating...' : 'Create Project'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      </div>
-
-      {/* Browse All Projects Modal */}
-      {showAllProjectsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <div className="flex items-center">
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                  📂
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900">Browse All Projects</h3>
-                <span className="ml-2 text-sm text-gray-500">({allProjects.length} total)</span>
-              </div>
+            </div>
+            
+            <div className="flex items-center justify-end space-x-3 mt-6">
               <button
-                onClick={() => setShowAllProjectsModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                onClick={() => {
+                  setShowCreateModal(false)
+                  setNewProjectName('')
+                  setNewProjectDomain(projectType === 'dimension' ? (templates[0] || 'general') : 'general')
+                }}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900"
+                disabled={creating}
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                Cancel
               </button>
-            </div>
-            
-            {/* Search Bar */}
-            <div className="p-6 border-b border-gray-200">
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Search projects by name or domain..."
-                />
-              </div>
-            </div>
-            
-            {/* Projects List */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {filteredProjects.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-gray-400 text-2xl">🔍</span>
-                  </div>
-                  <p className="text-gray-500">No projects found</p>
-                  <p className="text-sm text-gray-400 mt-1">Try adjusting your search terms</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredProjects.map((project) => (
-                    <div
-                      key={project.name}
-                      className="group p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 cursor-pointer transition-all duration-200 hover:shadow-md"
-                      onClick={() => {
-                        onProjectSelect(project)
-                        setShowAllProjectsModal(false)
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-gray-900 group-hover:text-blue-700 transition-colors truncate">
-                            {project.name}
-                          </h4>
-                          <p className="text-sm text-gray-600 mt-1 flex items-center">
-                            <span className="w-2 h-2 bg-green-400 rounded-full mr-2 flex-shrink-0"></span>
-                            <span className="truncate">{project.domain}</span>
-                            <span className="mx-2 text-gray-400">•</span>
-                            <span className="flex-shrink-0">{project.dimensions_count} dimensions</span>
-                          </p>
-                        </div>
-                        <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-                          →
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <button
+                onClick={createProject}
+                disabled={creating || !newProjectName.trim()}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  projectType === 'dimension'
+                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                    : 'bg-purple-500 hover:bg-purple-600 text-white'
+                }`}
+              >
+                {creating ? 'Creating...' : 'Create Project'}
+              </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   )
 }
+
+export type { Project, DimensionProject, RAGProject }

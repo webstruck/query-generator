@@ -34,3 +34,6 @@ simple_azure_test.py
 test_azure.py
 SimTalk Copilot
 src/qgen/web/frontend/src/components/query-generator.code-workspace
+.playwright-mcp/
+scripts/
+HIGHLIGHTING_IMPLEMENTATION.md

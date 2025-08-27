@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +24,12 @@ from qgen.core.data import get_data_manager
 from qgen.core.env import ensure_environment_loaded, get_available_providers, auto_detect_provider
 from qgen.core.dimensions import validate_dimensions
 from qgen.core.guidance import get_domain_template, list_available_domains
+
+# RAG imports
+from qgen.core.chunk_processing import ChunkProcessor
+from qgen.core.rag_generation import FactDataManager
+from qgen.core.rag_quality import RAGQueryDataManager, RAGQueryQualityFilter
+from qgen.core.rag_models import ChunkData, ExtractedFact, RAGQuery
 
 app = FastAPI(title="QGen Web API")
 
@@ -98,6 +104,31 @@ class QueryGenerationRequest(BaseModel):
 class QueryUpdateRequest(BaseModel):
     status: str
     text: Optional[str] = None
+
+# RAG-specific Pydantic models
+class RAGProjectCreateRequest(BaseModel):
+    name: str
+    domain: str = "general"
+
+class FactExtractionRequest(BaseModel):
+    provider: Optional[str] = None
+    chunks_dir: str = "chunks"
+
+class RAGQueryGenerationRequest(BaseModel):
+    count: Optional[int] = None
+    provider: Optional[str] = None
+
+class MultihopGenerationRequest(BaseModel):
+    count: Optional[int] = None
+    provider: Optional[str] = None
+    queries_per_combo: Optional[int] = None
+
+class FilterRequest(BaseModel):
+    min_score: Optional[float] = None
+    provider: Optional[str] = None
+
+class ApproveItemsRequest(BaseModel):
+    item_ids: List[str]
 
 # Background task functions
 
@@ -182,6 +213,173 @@ def background_generate_queries(project_name: str, project_path: Path, config: P
     except Exception as e:
         update_generation_status(project_name, "queries", 0, total_queries, f"Error: {str(e)}")
 
+# RAG Background Task Functions
+
+def background_extract_facts(project_name: str, project_path: Path, provider: str, chunks_dir: str):
+    """Background task for RAG fact extraction with progress tracking."""
+    try:
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            # Load chunks
+            chunk_processor = ChunkProcessor()
+            chunks = chunk_processor.load_chunks_from_directory(Path(chunks_dir))
+            total_chunks = len(chunks)
+            
+            if not chunks:
+                update_generation_status(project_name, "extract_facts", 0, 1, "Error: No chunks found")
+                return
+            
+            update_generation_status(project_name, "extract_facts", 0, total_chunks, "Starting fact extraction...")
+            
+            # Load RAG config and set provider
+            from qgen.core.rag_models import RAGConfig
+            from qgen.core.rag_generation import FactExtractor
+            
+            config = RAGConfig.load_from_file("config.yml") if Path("config.yml").exists() else RAGConfig(llm_provider=provider)
+            config.llm_provider = provider
+            
+            # Extract facts
+            extractor = FactExtractor(config)
+            facts, batch_metadata = extractor.extract_facts(chunks)
+            
+            # Save facts
+            if facts:
+                fact_manager = FactDataManager()
+                fact_manager.save_facts(facts, "generated", batch_metadata=batch_metadata)
+                update_generation_status(project_name, "extract_facts", total_chunks, total_chunks, f"Completed: {len(facts)} facts extracted")
+            else:
+                update_generation_status(project_name, "extract_facts", 0, total_chunks, "Error: No facts extracted")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "extract_facts", 0, 1, f"Error: {str(e)}")
+
+def background_generate_rag_queries(project_name: str, project_path: Path, provider: str, count: Optional[int]):
+    """Background task for RAG query generation with progress tracking."""
+    try:
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            # Load approved facts
+            fact_manager = FactDataManager()
+            approved_facts = fact_manager.load_facts("approved")
+            
+            if not approved_facts:
+                update_generation_status(project_name, "generate_queries", 0, 1, "Error: No approved facts found")
+                return
+            
+            target_count = count or len(approved_facts)
+            update_generation_status(project_name, "generate_queries", 0, target_count, "Starting query generation...")
+            
+            # Load RAG config and set provider
+            from qgen.core.rag_models import RAGConfig
+            from qgen.core.rag_generation import StandardQueryGenerator
+            
+            config = RAGConfig.load_from_file("config.yml") if Path("config.yml").exists() else RAGConfig(llm_provider=provider)
+            config.llm_provider = provider
+            
+            # Generate queries
+            generator = StandardQueryGenerator(config)
+            queries, batch_metadata = generator.generate_queries(approved_facts, target_count=count)
+            
+            if queries:
+                query_manager = RAGQueryDataManager()
+                query_manager.save_queries(queries, "generated", batch_metadata=batch_metadata)
+                update_generation_status(project_name, "generate_queries", len(queries), target_count, f"Completed: {len(queries)} queries generated")
+            else:
+                update_generation_status(project_name, "generate_queries", 0, target_count, "Error: No queries generated")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "generate_queries", 0, 1, f"Error: {str(e)}")
+
+def background_generate_multihop_queries(project_name: str, project_path: Path, provider: str, count: Optional[int], queries_per_combo: Optional[int]):
+    """Background task for RAG multi-hop query generation with progress tracking."""
+    try:
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            # Load approved facts
+            fact_manager = FactDataManager()
+            approved_facts = fact_manager.load_facts("approved")
+            
+            if not approved_facts:
+                update_generation_status(project_name, "generate_multihop", 0, 1, "Error: No approved facts found")
+                return
+            
+            target_count = count or 10
+            update_generation_status(project_name, "generate_multihop", 0, target_count, "Starting multi-hop query generation...")
+            
+            # Load RAG config and set provider
+            from qgen.core.rag_models import RAGConfig
+            from qgen.core.adversarial_generation import AdversarialMultiHopGenerator
+            
+            config = RAGConfig.load_from_file("config.yml") if Path("config.yml").exists() else RAGConfig(llm_provider=provider)
+            config.llm_provider = provider
+            
+            # Generate multi-hop queries
+            generator = AdversarialMultiHopGenerator(config)
+            queries, batch_metadata = generator.generate_multihop_queries(approved_facts, target_count=count, queries_per_combo=queries_per_combo or 1)
+            
+            if queries:
+                query_manager = RAGQueryDataManager()
+                query_manager.save_queries(queries, "generated_multihop", batch_metadata=batch_metadata)
+                update_generation_status(project_name, "generate_multihop", len(queries), target_count, f"Completed: {len(queries)} multi-hop queries generated")
+            else:
+                update_generation_status(project_name, "generate_multihop", 0, target_count, "Error: No multi-hop queries generated")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "generate_multihop", 0, 1, f"Error: {str(e)}")
+
+def background_filter_queries(project_name: str, project_path: Path, provider: str, min_score: Optional[float]):
+    """Background task for RAG query quality filtering with progress tracking."""
+    try:
+        # Change to project directory
+        original_cwd = os.getcwd()
+        os.chdir(project_path)
+        
+        try:
+            # Load generated queries
+            query_manager = RAGQueryDataManager()
+            queries = query_manager.load_queries("generated")
+            
+            if not queries:
+                update_generation_status(project_name, "filter_queries", 0, 1, "Error: No generated queries found")
+                return
+            
+            update_generation_status(project_name, "filter_queries", 0, len(queries), "Starting quality filtering...")
+            
+            # Filter queries
+            quality_filter = RAGQueryQualityFilter(provider_type=provider)
+            filtered_queries, batch_metadata = quality_filter.filter_queries_by_realism(queries, min_score or 3.0)
+            
+            # Save filtered queries
+            if filtered_queries:
+                query_manager.save_queries(filtered_queries, "filtered", batch_metadata=batch_metadata)
+                update_generation_status(project_name, "filter_queries", len(queries), len(queries), f"Completed: {len(filtered_queries)} queries passed filter")
+            else:
+                update_generation_status(project_name, "filter_queries", len(queries), len(queries), "Completed: No queries passed filter")
+                
+        finally:
+            os.chdir(original_cwd)
+            
+    except Exception as e:
+        update_generation_status(project_name, "filter_queries", 0, 1, f"Error: {str(e)}")
+
 # API Routes
 
 @app.get("/api/health")
@@ -264,11 +462,26 @@ async def list_projects(limit: Optional[int] = None):
         if d.is_dir() and (d / "config.yml").exists():
             try:
                 config = load_project_config(str(d))
+                data_manager = get_data_manager(str(d))
+                
+                # Get data status
+                generated_tuples = data_manager.load_tuples("generated")
+                approved_tuples = data_manager.load_tuples("approved") 
+                generated_queries = data_manager.load_queries("generated")
+                approved_queries = data_manager.load_queries("approved")
+                
                 projects.append({
                     "name": d.name,
                     "path": str(d),
                     "domain": config.domain,
                     "dimensions_count": len(config.dimensions),
+                    "data_status": {
+                        "generated_tuples": len(generated_tuples),
+                        "approved_tuples": len(approved_tuples),
+                        "generated_queries": len(generated_queries),
+                        "approved_queries": len(approved_queries)
+                    },
+                    "type": "dimension",
                     "modified_time": d.stat().st_mtime
                 })
             except:
@@ -596,6 +809,569 @@ async def download_file(project_name: str, filename: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ========================================
+# RAG PROJECT ENDPOINTS
+# ========================================
+
+@app.post("/api/rag-projects")
+async def create_rag_project(request: RAGProjectCreateRequest):
+    """Create a new RAG project."""
+    try:
+        project_path = get_project_path(request.name)
+        if project_path.exists():
+            raise HTTPException(status_code=400, detail=f"Directory '{request.name}' already exists")
+        
+        # Create RAG project directory structure
+        project_path.mkdir(parents=True)
+        (project_path / "chunks").mkdir(parents=True)
+        (project_path / "data" / "facts").mkdir(parents=True)
+        (project_path / "data" / "queries").mkdir(parents=True)
+        (project_path / "data" / "exports").mkdir(parents=True)
+        
+        # Create a simple marker file to identify RAG projects
+        (project_path / ".rag_project").touch()
+        
+        # Create basic metadata file
+        metadata = {
+            "name": request.name,
+            "type": "rag",
+            "domain": request.domain,
+            "created_at": time.time()
+        }
+        
+        with open(project_path / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+        
+        return {"message": f"RAG project '{request.name}' created successfully", "path": str(project_path)}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag-projects")
+async def list_rag_projects(limit: Optional[int] = None):
+    """List available RAG projects in user's working directory."""
+    user_dir = Path(USER_CWD)
+    projects = []
+    
+    for d in user_dir.iterdir():
+        if d.is_dir() and (d / ".rag_project").exists():
+            try:
+                metadata_path = d / "metadata.json"
+                if metadata_path.exists():
+                    with open(metadata_path) as f:
+                        metadata = json.load(f)
+                    
+                    # Count chunks, facts, and queries
+                    chunks_count = len(list((d / "chunks").glob("*.jsonl"))) if (d / "chunks").exists() else 0
+                    
+                    fact_manager = FactDataManager(str(d))
+                    try:
+                        generated_facts = fact_manager.load_facts("generated")
+                        approved_facts = fact_manager.load_facts("approved")
+                    except:
+                        generated_facts = []
+                        approved_facts = []
+                    
+                    query_manager = RAGQueryDataManager(str(d))
+                    try:
+                        generated_queries = query_manager.load_queries("generated")
+                        approved_queries = query_manager.load_queries("approved")
+                    except:
+                        generated_queries = []
+                        approved_queries = []
+                    
+                    projects.append({
+                        "name": d.name,
+                        "path": str(d),
+                        "type": "rag",
+                        "domain": metadata.get("domain", "general"),
+                        "chunks_count": chunks_count,
+                        "data_status": {
+                            "generated_facts": len(generated_facts),
+                            "approved_facts": len(approved_facts),
+                            "generated_queries": len(generated_queries),
+                            "approved_queries": len(approved_queries)
+                        },
+                        "modified_time": d.stat().st_mtime
+                    })
+            except:
+                continue
+    
+    # Sort by modification time, most recent first
+    projects.sort(key=lambda x: x["modified_time"], reverse=True)
+    
+    # Remove modified_time from response
+    for project in projects:
+        del project["modified_time"]
+    
+    # Apply limit if specified
+    if limit is not None:
+        projects = projects[:limit]
+    
+    return {"projects": projects}
+
+@app.get("/api/rag-projects/{project_name}")
+async def get_rag_project(project_name: str):
+    """Get RAG project details."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        # Load metadata
+        metadata_path = project_path / "metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+        else:
+            metadata = {"name": project_name, "type": "rag", "domain": "general"}
+        
+        # Get data status
+        chunks_count = len(list((project_path / "chunks").glob("*.jsonl"))) if (project_path / "chunks").exists() else 0
+        
+        fact_manager = FactDataManager(str(project_path))
+        try:
+            generated_facts = fact_manager.load_facts("generated")
+            approved_facts = fact_manager.load_facts("approved")
+        except:
+            generated_facts = []
+            approved_facts = []
+        
+        query_manager = RAGQueryDataManager()
+        try:
+            generated_queries = query_manager.load_queries("generated")
+            approved_queries = query_manager.load_queries("approved")
+            multihop_queries = query_manager.load_queries("generated_multihop")
+        except:
+            generated_queries = []
+            approved_queries = []
+            multihop_queries = []
+        
+        return {
+            "name": metadata["name"],
+            "type": "rag",
+            "domain": metadata.get("domain", "general"),
+            "chunks_count": chunks_count,
+            "data_status": {
+                "generated_facts": len(generated_facts),
+                "approved_facts": len(approved_facts),
+                "generated_queries": len(generated_queries),
+                "generated_multihop": len(multihop_queries),
+                "approved_queries": len(approved_queries)
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/chunks/upload")
+async def upload_chunks(project_name: str, file: UploadFile = File(...)):
+    """Upload chunk files to a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        # Ensure chunks directory exists
+        chunks_dir = project_path / "chunks"
+        chunks_dir.mkdir(exist_ok=True)
+        
+        # Save uploaded file
+        file_path = chunks_dir / file.filename
+        content = await file.read()
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # Validate JSONL format by trying to load chunks
+        try:
+            chunk_processor = ChunkProcessor()
+            chunks = chunk_processor.load_chunks_from_file(file_path)
+            chunks_count = len(chunks)
+        except Exception as e:
+            # Remove invalid file
+            file_path.unlink()
+            raise HTTPException(status_code=400, detail=f"Invalid JSONL format: {str(e)}")
+        
+        return {
+            "message": f"Uploaded {file.filename} with {chunks_count} chunks",
+            "filename": file.filename,
+            "chunks_count": chunks_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag-projects/{project_name}/chunks")
+async def get_chunks_info(project_name: str):
+    """Get chunks information for a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        chunks_dir = project_path / "chunks"
+        if not chunks_dir.exists():
+            return {"chunks_files": [], "total_chunks": 0}
+        
+        chunk_processor = ChunkProcessor()
+        chunks_files = []
+        total_chunks = 0
+        
+        for file_path in chunks_dir.glob("*.jsonl"):
+            try:
+                chunks = chunk_processor.load_chunks_from_file(file_path)
+                chunks_files.append({
+                    "filename": file_path.name,
+                    "chunks_count": len(chunks),
+                    "file_size": file_path.stat().st_size
+                })
+                total_chunks += len(chunks)
+            except:
+                chunks_files.append({
+                    "filename": file_path.name,
+                    "chunks_count": 0,
+                    "file_size": file_path.stat().st_size,
+                    "error": "Invalid format"
+                })
+        
+        return {
+            "chunks_files": chunks_files,
+            "total_chunks": total_chunks
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ========================================
+# RAG WORKFLOW ENDPOINTS
+# ========================================
+
+@app.post("/api/rag-projects/{project_name}/extract-facts")
+async def extract_facts(project_name: str, request: FactExtractionRequest, background_tasks: BackgroundTasks):
+    """Extract facts from chunks in a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        provider = request.provider or auto_detect_provider()
+        if not provider:
+            raise HTTPException(status_code=400, detail="No LLM provider available")
+        
+        # Clear any existing status
+        clear_generation_status(project_name, "extract_facts")
+        
+        # Start background task
+        background_tasks.add_task(
+            background_extract_facts,
+            project_name, project_path, provider, request.chunks_dir
+        )
+        
+        return {
+            "message": "Fact extraction started",
+            "provider": provider,
+            "chunks_dir": request.chunks_dir
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/generate-queries")
+async def generate_standard_queries(project_name: str, request: RAGQueryGenerationRequest, background_tasks: BackgroundTasks):
+    """Generate standard queries from facts in a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        provider = request.provider or auto_detect_provider()
+        if not provider:
+            raise HTTPException(status_code=400, detail="No LLM provider available")
+        
+        # Clear any existing status
+        clear_generation_status(project_name, "generate_queries")
+        
+        # Start background task
+        background_tasks.add_task(
+            background_generate_rag_queries,
+            project_name, project_path, provider, request.count
+        )
+        
+        return {
+            "message": "Query generation started",
+            "provider": provider,
+            "count": request.count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/generate-multihop")
+async def generate_multihop_queries(project_name: str, request: MultihopGenerationRequest, background_tasks: BackgroundTasks):
+    """Generate multi-hop queries from facts in a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        provider = request.provider or auto_detect_provider()
+        if not provider:
+            raise HTTPException(status_code=400, detail="No LLM provider available")
+        
+        # Clear any existing status
+        clear_generation_status(project_name, "generate_multihop")
+        
+        # Start background task
+        background_tasks.add_task(
+            background_generate_multihop_queries,
+            project_name, project_path, provider, request.count, request.queries_per_combo
+        )
+        
+        return {
+            "message": "Multi-hop query generation started",
+            "provider": provider,
+            "count": request.count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/filter-queries")
+async def filter_queries(project_name: str, request: FilterRequest, background_tasks: BackgroundTasks):
+    """Filter queries by quality score in a RAG project."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        provider = request.provider or auto_detect_provider()
+        if not provider:
+            raise HTTPException(status_code=400, detail="No LLM provider available")
+        
+        # Clear any existing status
+        clear_generation_status(project_name, "filter_queries")
+        
+        # Start background task
+        background_tasks.add_task(
+            background_filter_queries,
+            project_name, project_path, provider, request.min_score
+        )
+        
+        return {
+            "message": "Query filtering started",
+            "provider": provider,
+            "min_score": request.min_score
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ========================================
+# RAG DATA MANAGEMENT ENDPOINTS
+# ========================================
+
+@app.get("/api/rag-projects/{project_name}/facts/{stage}")
+async def get_facts(project_name: str, stage: str):
+    """Get facts from specific stage with source text for highlighting."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        fact_manager = FactDataManager(str(project_path))
+        facts = fact_manager.load_facts(stage)
+        
+        # Load chunks to get source text
+        chunks_directory = project_path / "chunks"
+        chunk_processor = ChunkProcessor()
+        all_chunks = chunk_processor.load_chunks_from_directory(chunks_directory)
+        
+        # Create chunk lookup by ID
+        chunk_lookup = {chunk.chunk_id: chunk.text for chunk in all_chunks}
+        
+        facts_with_highlighting = []
+        for fact in facts:
+            source_text = chunk_lookup.get(fact.chunk_id, "Source chunk not found")
+            
+            # Get highlighted chunk using Model2Vec similarity with fallback
+            try:
+                print(f"🔍 Attempting highlighting for fact {fact.fact_id[:8]}...")
+                print(f"    Fact: '{fact.fact_text}'")
+                print(f"    Source: '{source_text}'")
+                
+                highlighted_html = fact.get_chunk_with_highlight(source_text, similarity_threshold=0.5)
+                
+                print(f"    Raw result: '{highlighted_html}'")
+                print(f"    Has rich markup: {'[bold yellow on blue]' in highlighted_html}")
+                
+                # Convert rich markup to HTML for web display
+                highlighted_html = highlighted_html.replace("[bold yellow on blue]", '<mark class="bg-yellow-200 text-yellow-900 font-medium px-1 rounded">')
+                highlighted_html = highlighted_html.replace("[/bold yellow on blue]", "</mark>")
+                
+                print(f"    Final HTML: '{highlighted_html}'")
+                print(f"    Has mark tags: {'<mark>' in highlighted_html}")
+                print(f"✅ Highlighting completed for fact {fact.fact_id[:8]}")
+            except Exception as e:
+                print(f"⚠️ Highlighting failed for fact {fact.fact_id}: {e}")
+                print(f"🔄 Using fallback: sentence-based word highlighting")
+                # Simple fallback highlighting using word matching
+                import re
+                fact_words = [word for word in re.findall(r'\b\w{3,}\b', fact.fact_text)]
+                highlighted_html = source_text
+                print(f"📝 Fact words to highlight: {fact_words}")
+                
+                for word in fact_words:
+                    # Create pattern that matches the word case-insensitively but preserves original case
+                    pattern = r'\b(' + re.escape(word) + r')\b'
+                    def replacement_func(match):
+                        original_word = match.group(1)
+                        return f'<mark class="bg-yellow-200 text-yellow-900 font-medium px-1 rounded">{original_word}</mark>'
+                    
+                    highlighted_html = re.sub(pattern, replacement_func, highlighted_html, flags=re.IGNORECASE)
+                
+                print(f"✅ Fallback highlighting complete, found {highlighted_html.count('<mark>')} highlights")
+            
+            facts_with_highlighting.append({
+                "fact_id": fact.fact_id,
+                "chunk_id": fact.chunk_id,
+                "fact_text": fact.fact_text,
+                "extraction_confidence": fact.extraction_confidence,
+                "source_text": source_text,
+                "highlighted_source": highlighted_html
+            })
+
+        return {
+            "facts": facts_with_highlighting,
+            "count": len(facts)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/facts/approve")
+async def approve_facts(project_name: str, request: ApproveItemsRequest):
+    """Approve selected facts."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        fact_manager = FactDataManager(str(project_path))
+        generated_facts = fact_manager.load_facts("generated")
+        
+        # Filter approved facts
+        approved_facts = [fact for fact in generated_facts if fact.fact_id in request.item_ids]
+        
+        if approved_facts:
+            fact_manager.save_facts(approved_facts, "approved", {"approved_count": len(approved_facts)})
+        
+        return {
+            "message": f"Approved {len(approved_facts)} facts",
+            "approved_count": len(approved_facts)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag-projects/{project_name}/queries/{stage}")
+async def get_rag_queries(project_name: str, stage: str):
+    """Get RAG queries from specific stage."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        query_manager = RAGQueryDataManager()
+        queries = query_manager.load_queries(stage)
+        
+        return {
+            "queries": [
+                {
+                    "query_id": query.query_id,
+                    "query_text": query.query_text,
+                    "answer_fact": query.answer_fact,
+                    "source_chunk_ids": query.source_chunk_ids,
+                    "difficulty": query.difficulty,
+                    "realism_rating": getattr(query, 'realism_rating', None)
+                }
+                for query in queries
+            ],
+            "count": len(queries)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rag-projects/{project_name}/queries/approve")
+async def approve_rag_queries(project_name: str, request: ApproveItemsRequest):
+    """Approve selected RAG queries."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        query_manager = RAGQueryDataManager()
+        
+        # Load both standard and multihop queries
+        standard_queries = query_manager.load_queries("generated")
+        multihop_queries = query_manager.load_queries("generated_multihop")
+        all_queries = standard_queries + multihop_queries
+        
+        # Filter approved queries
+        approved_queries = [query for query in all_queries if query.query_id in request.item_ids]
+        
+        if approved_queries:
+            query_manager.save_queries(approved_queries, "approved", {"approved_count": len(approved_queries)})
+        
+        return {
+            "message": f"Approved {len(approved_queries)} queries",
+            "approved_count": len(approved_queries)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag-projects/{project_name}/export/{format}")
+async def export_rag_queries(project_name: str, format: str, stage: str = "approved"):
+    """Export RAG queries to specified format."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        if format not in ["csv", "json"]:
+            raise HTTPException(status_code=400, detail="Format must be 'csv' or 'json'")
+        
+        query_manager = RAGQueryDataManager()
+        queries = query_manager.load_queries(stage)
+        
+        if not queries:
+            raise HTTPException(status_code=404, detail=f"No {stage} queries found")
+        
+        # Export using CLI functionality
+        from qgen.core.rag_export import RAGExporter
+        exporter = RAGExporter(str(project_path))
+        exported_path = exporter.export_queries(queries, format, stage)
+        
+        return {
+            "message": f"Exported to {exported_path}",
+            "path": exported_path,
+            "format": format,
+            "queries_count": len(queries)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rag-projects/{project_name}/status/{operation}")
+async def get_rag_operation_status(project_name: str, operation: str):
+    """Get RAG operation status for a project."""
+    status = get_generation_status(project_name, operation)
+    if not status:
+        raise HTTPException(status_code=404, detail="No active operation found")
+    return status
+
 # Serve static files (React build) in production
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
 if frontend_dist.exists():
@@ -603,4 +1379,4 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8888)

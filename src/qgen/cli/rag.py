@@ -3,6 +3,7 @@
 import typer
 from pathlib import Path
 from rich.console import Console
+from rich.progress import Progress
 from typing import Optional
 from datetime import datetime
 
@@ -10,6 +11,8 @@ from qgen.core.rag_models import RAGConfig, BatchMetadata, RAGQuery
 from qgen.core.chunk_processing import ChunkProcessor
 from qgen.core.rag_generation import FactExtractor, FactDataManager, StandardQueryGenerator, QueryDataManager
 from qgen.core.adversarial_generation import generate_adversarial_multihop_queries
+from qgen.core.rag_quality import RAGQueryQualityFilter, RAGQueryDataManager
+from qgen.core.rag_export import RAGExporter, RAGQueryDataManagerExtended
 from qgen.core.rich_output import show_error_panel, create_success_panel, create_info_panel, create_header_panel
 from qgen.core.env import auto_detect_provider, get_available_providers, validate_llm_provider, show_provider_setup_help
 from .review import review_queries
@@ -314,8 +317,10 @@ Quality Control:
             recommendations.append("Generate multi-hop queries: qgen rag generate-multihop")
         elif total_approved_queries == 0:
             recommendations.append("Review and approve generated queries")
+            recommendations.append("OR use quality filtering: qgen rag filter")
         else:
-            recommendations.append("Export final dataset: qgen export --format csv")
+            recommendations.append("Filter by quality: qgen rag filter --min-score 4.0")
+            recommendations.append("Export final dataset: qgen rag export --format jsonl")
             
         # Additional recommendations for multi-hop
         if generated_multihop['count'] == 0 and approved_facts['count'] > 0:
@@ -575,15 +580,21 @@ def review_queries_cmd():
     try:
         # Load generated queries (environment already loaded globally)
         query_manager = QueryDataManager()
-        queries = query_manager.load_queries("generated")
+        standard_queries = query_manager.load_queries("generated")
+        multihop_queries = query_manager.load_queries("generated_multihop")
+        
+        # Combine both types of queries
+        queries = standard_queries + multihop_queries
         
         if not queries:
             show_error_panel(
                 "No Generated Queries Found",
                 "You need to generate queries first.",
-                ["qgen rag generate-queries"]
+                ["qgen rag generate-queries", "qgen rag generate-multihop"]
             )
             raise typer.Exit(1)
+        
+        console.print(f"[dim]✅ Loaded {len(standard_queries)} standard + {len(multihop_queries)} multi-hop queries[/dim]")
         
         # Load chunks for context
         chunk_processor = ChunkProcessor()
@@ -830,6 +841,315 @@ Files: {saved_path}, {approved_path}"""
         
     except Exception as e:
         console.print(f"[red]❌ Multi-hop query generation failed: {str(e)}[/red]")
+        raise typer.Exit(1)
+
+
+@rag_app.command("filter")
+def filter_queries_cmd(
+    min_score: Optional[float] = typer.Option(None, "--min-score", "-s", help="Minimum realism score (overrides config)"),
+    input_stage: str = typer.Option("generated", "--input", "-i", help="Input stage: generated"),
+    output_stage: str = typer.Option("approved", "--output", "-o", help="Output stage: approved"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider (openai, azure, github, ollama)"),
+    no_review: bool = typer.Option(False, "--no-review", help="Skip interactive review of filtered results"),
+    show_failed: bool = typer.Option(False, "--show-failed", help="Display queries that failed filtering"),
+):
+    """Filter queries based on realism scores and quality metrics."""
+    
+    try:
+        console.print(create_header_panel("🎯 RAG Query Quality Filtering", "Evaluating query realism and quality"))
+        
+        # Validate RAG project
+        if not Path("config.yml").exists():
+            show_error_panel(
+                "Not in a RAG Project Directory",
+                "No config.yml found. RAG commands must be run from inside the project directory.",
+                [
+                    "1. Create project: qgen init myproject --rag",
+                    "2. Navigate to project: cd myproject", 
+                    "3. Run RAG commands from inside the project directory"
+                ]
+            )
+            raise typer.Exit(1)
+        
+        # Load configuration
+        config = RAGConfig.load_from_file("config.yml")
+        
+        # Override min score if provided
+        if min_score is not None:
+            if min_score < 1.0 or min_score > 5.0:
+                console.print("[red]❌ Minimum score must be between 1.0 and 5.0[/red]")
+                raise typer.Exit(1)
+            config.min_realism_score = min_score
+        
+        # Auto-detect provider if not specified
+        if provider is None:
+            provider = auto_detect_provider()
+            if provider is None:
+                console.print("[red]❌ No LLM provider configuration found in environment[/red]")
+                show_provider_setup_help()
+                raise typer.Exit(1)
+            console.print(f"[blue]🔍 Auto-detected provider: {provider}[/blue]")
+        else:
+            # Validate specified provider is available
+            available_providers = get_available_providers()
+            if provider not in available_providers:
+                console.print(f"[red]❌ Provider '{provider}' not available. Available: {', '.join(available_providers)}[/red]")
+                raise typer.Exit(1)
+        
+        # Update config with provider
+        config.llm_provider = provider
+        
+        # Load queries
+        data_manager = RAGQueryDataManager()
+        queries = data_manager.load_queries(input_stage)
+        
+        if not queries:
+            show_error_panel(
+                f"No {input_stage.title()} Queries Found",
+                f"No queries found in '{input_stage}' stage.",
+                [
+                    "1. Generate queries first: qgen rag generate-queries",
+                    "2. Or generate multi-hop queries: qgen rag generate-multihop",
+                    f"Current directory: {Path.cwd()}"
+                ]
+            )
+            raise typer.Exit(1)
+        
+        console.print(f"[blue]📊 Found {len(queries)} queries in '{input_stage}' stage[/blue]")
+        console.print(f"[blue]🎯 Filtering threshold: {config.min_realism_score}/5.0[/blue]")
+        
+        # Create quality filter
+        quality_filter = RAGQueryQualityFilter(config)
+        
+        # CLI-specific progress callback with Rich progress bar
+        def progress_callback(current: int, total: int, message: str):
+            # This will be called by the filter to update progress
+            pass
+        
+        # Run filtering with progress tracking
+        with Progress() as progress:
+            task = progress.add_task("Filtering queries...", total=len(queries))
+            
+            def rich_progress_callback(current: int, total: int, message: str):
+                progress.update(task, completed=current, description=f"[cyan]{message}[/cyan]")
+            
+            passed_queries, failed_queries, stats = quality_filter.filter_queries(
+                queries, 
+                progress_callback=rich_progress_callback
+            )
+        
+        # Save filtered results
+        data_manager.save_queries(
+            passed_queries, 
+            output_stage, 
+            metadata={
+                "filtering_stats": stats,
+                "source_stage": input_stage,
+                "filter_threshold": config.min_realism_score,
+                "provider_used": provider
+            }
+        )
+        
+        # Display summary
+        summary = quality_filter.get_filtering_summary(passed_queries, failed_queries, stats)
+        console.print()
+        console.print(create_success_panel("✅ Quality Filtering Complete", summary))
+        
+        # Show failed queries if requested
+        if show_failed and failed_queries:
+            console.print("\n[yellow]📉 Queries that failed filtering:[/yellow]")
+            for i, query in enumerate(failed_queries[:5], 1):  # Show first 5
+                score = query.realism_rating or 0
+                reasoning = query.reasoning or "No reasoning available"
+                console.print(f"\n[dim]{i}. Score: {score}/5.0[/dim]")
+                console.print(f"[red]Query:[/red] {query.query_text}")
+                console.print(f"[dim]Reason:[/dim] {reasoning[:100]}...")
+            
+            if len(failed_queries) > 5:
+                console.print(f"\n[dim]... and {len(failed_queries) - 5} more failed queries[/dim]")
+        
+        # Offer review of results
+        if not no_review and passed_queries:
+            console.print(f"\n[yellow]💡 Next steps:[/yellow]")
+            console.print(f"1. Review filtered queries: [cyan]qgen rag review-queries[/cyan]")
+            console.print(f"2. Export final dataset: [cyan]qgen rag export --format jsonl[/cyan]")
+            
+            if typer.confirm("\n🔍 Would you like to review the filtered queries now?"):
+                console.print("\n[blue]📝 Starting query review...[/blue]")
+                
+                # Load chunks for context
+                chunk_processor = ChunkProcessor()
+                chunks = chunk_processor.load_chunks_from_directory(Path("chunks"))
+                chunks_map = {chunk.chunk_id: chunk for chunk in chunks}
+                
+                # Use existing review interface
+                reviewed_queries = review_queries(passed_queries, chunks_map)
+                
+                if reviewed_queries:
+                    # Save reviewed queries
+                    data_manager.save_queries(
+                        reviewed_queries, 
+                        "approved",
+                        metadata={
+                            "review_completed": True,
+                            "reviewed_at": datetime.now().isoformat(),
+                            "source_filtering": stats
+                        }
+                    )
+                    console.print(f"[green]✅ Review complete: {len(reviewed_queries)} queries approved[/green]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Quality filtering failed: {str(e)}[/red]")
+        raise typer.Exit(1)
+
+
+@rag_app.command("export")
+def export_queries_cmd(
+    format: str = typer.Option("jsonl", "--format", "-f", help="Export format: jsonl, json, csv"),
+    stage: str = typer.Option("approved", "--stage", "-s", help="Stage to export: generated, approved, etc."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path (auto-generated if not specified)"),
+    show_stats: bool = typer.Option(True, "--stats/--no-stats", help="Show detailed export statistics"),
+    preview: bool = typer.Option(False, "--preview", help="Preview export data without saving"),
+):
+    """Export RAG queries to file with comprehensive statistics."""
+    
+    try:
+        console.print(create_header_panel("📊 RAG Query Export", f"Exporting queries from '{stage}' stage"))
+        
+        # Validate RAG project
+        if not Path("config.yml").exists():
+            show_error_panel(
+                "Not in a RAG Project Directory",
+                "No config.yml found. RAG commands must be run from inside the project directory.",
+                [
+                    "1. Create project: qgen init myproject --rag",
+                    "2. Navigate to project: cd myproject", 
+                    "3. Run RAG commands from inside the project directory"
+                ]
+            )
+            raise typer.Exit(1)
+        
+        # Validate format
+        supported_formats = ["jsonl", "json", "csv"]
+        if format.lower() not in supported_formats:
+            console.print(f"[red]❌ Unsupported format '{format}'. Supported: {', '.join(supported_formats)}[/red]")
+            raise typer.Exit(1)
+        
+        # Load queries
+        data_manager = RAGQueryDataManagerExtended()
+        available_stages = data_manager.get_available_stages()
+        
+        if not available_stages:
+            show_error_panel(
+                "No Query Data Found",
+                "No query stages found in this project.",
+                [
+                    "1. Generate queries: qgen rag generate-queries",
+                    "2. Or generate multi-hop queries: qgen rag generate-multihop",
+                    "3. Review and approve queries before exporting"
+                ]
+            )
+            raise typer.Exit(1)
+        
+        if stage not in available_stages:
+            console.print(f"[red]❌ Stage '{stage}' not found. Available stages: {', '.join(available_stages)}[/red]")
+            
+            # Suggest closest match
+            if "approved" in available_stages:
+                console.print("[yellow]💡 Try: --stage approved[/yellow]")
+            elif "generated" in available_stages:
+                console.print("[yellow]💡 Try: --stage generated[/yellow]")
+                
+            raise typer.Exit(1)
+        
+        # Load queries from stage
+        queries = data_manager.load_queries_for_export(stage)
+        
+        if not queries:
+            show_error_panel(
+                f"No Queries in '{stage}' Stage",
+                f"The '{stage}' stage exists but contains no queries.",
+                [
+                    "1. Check if queries were properly generated",
+                    "2. Verify the stage name is correct",
+                    f"3. Available stages: {', '.join(available_stages)}"
+                ]
+            )
+            raise typer.Exit(1)
+        
+        console.print(f"[blue]📋 Found {len(queries)} queries in '{stage}' stage[/blue]")
+        
+        # Preview mode
+        if preview:
+            console.print(f"\n[yellow]👀 Preview of export data (first 3 queries):[/yellow]")
+            
+            exporter = RAGExporter()
+            preview_data = exporter.prepare_export_data(queries[:3])
+            
+            for i, record in enumerate(preview_data, 1):
+                console.print(f"\n[dim]Query {i}:[/dim]")
+                console.print(f"[white]Query:[/white] {record['query']}")
+                console.print(f"[white]Answer:[/white] {record['answer']}")
+                console.print(f"[white]Difficulty:[/white] {record['difficulty']}")
+                if record.get('realism_score'):
+                    console.print(f"[white]Realism:[/white] {record['realism_score']}/5.0")
+                console.print(f"[white]Chunks:[/white] {len(record['source_chunk_ids'])}")
+            
+            if len(queries) > 3:
+                console.print(f"\n[dim]... and {len(queries) - 3} more queries[/dim]")
+                
+            console.print(f"\n[blue]ℹ️  Run without --preview to export all {len(queries)} queries[/blue]")
+            return
+        
+        # Generate output filename if not provided
+        if not output:
+            filename = data_manager.get_export_filename(stage, format)
+            output = data_manager.get_export_path(filename)
+        else:
+            # Ensure output directory exists
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+        
+        # Export queries
+        console.print(f"[blue]💾 Exporting to: {output}[/blue]")
+        
+        exporter = RAGExporter()
+        stats = exporter.export_queries(queries, format, output)
+        
+        # Display results
+        console.print()
+        console.print(create_success_panel(
+            "✅ Export Complete", 
+            f"Successfully exported {len(queries)} queries to {format.upper()} format"
+        ))
+        
+        console.print(f"[green]📁 File saved: {output}[/green]")
+        console.print(f"[green]📏 File size: {stats.get('file_size_mb', 0)} MB[/green]")
+        
+        # Show detailed statistics
+        if show_stats:
+            console.print("\n" + exporter.generate_export_summary_text(stats))
+        
+        # Show next steps
+        console.print(f"\n[yellow]💡 Next steps:[/yellow]")
+        console.print(f"• Use the exported file for RAG evaluation")
+        console.print(f"• File location: {output}")
+        
+        if format == "jsonl":
+            console.print("• JSONL format is ideal for most RAG evaluation tools")
+        elif format == "json":
+            console.print("• JSON format includes metadata and statistics")
+        elif format == "csv":
+            console.print("• CSV format is suitable for analysis in spreadsheets")
+        
+        # Additional export suggestions
+        if stage == "generated" and "approved" in available_stages:
+            console.print(f"\n[dim]💡 Consider exporting 'approved' stage for final dataset[/dim]")
+        
+        if format != "jsonl":
+            console.print(f"[dim]💡 Try --format jsonl for RAG evaluation compatibility[/dim]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Export failed: {str(e)}[/red]")
         raise typer.Exit(1)
 
 

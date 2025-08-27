@@ -7,6 +7,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .models import ProjectConfig, Dimension, Tuple, Query
 from .llm_api import create_llm_provider
+from .structured_llm import RateLimitExceededException
 
 console = Console()
 
@@ -152,6 +153,11 @@ def generate_tuples(config: ProjectConfig, count: int, provider_type: str = "ope
         
         try:
             response = llm.generate_text(prompt, **config.llm_params)
+        except RateLimitExceededException as e:
+            console.print(f"[red]❌ Failed to generate tuples: {str(e)}[/red]")
+            console.print("[red]🛑 Rate limit exceeded. Stopping processing to avoid further failures.[/red]")
+            console.print("[yellow]💡 Suggestion: Wait for the rate limit to reset or switch to a different provider (--provider ollama)[/yellow]")
+            raise
         except Exception as e:
             console.print(f"[red]❌ Error generating tuples: {str(e)}[/red]")
             raise
@@ -243,6 +249,11 @@ def generate_queries(config: ProjectConfig, tuples: List[Tuple], queries_per_tup
                     )
                     queries.append(query)
                     
+            except RateLimitExceededException as e:
+                console.print(f"[red]❌ Failed to generate queries for tuple {i+1}: {str(e)}[/red]")
+                console.print("[red]🛑 Rate limit exceeded. Stopping processing to avoid further failures.[/red]")
+                console.print("[yellow]💡 Suggestion: Wait for the rate limit to reset or switch to a different provider (--provider ollama)[/yellow]")
+                break
             except Exception as e:
                 console.print(f"[red]❌ Error generating queries for tuple {i+1}: {str(e)}[/red]")
                 # Continue with other queries

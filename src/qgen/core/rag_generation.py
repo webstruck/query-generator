@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .rag_models import ChunkData, ExtractedFact, RAGQuery, RAGConfig, BatchMetadata, FactSpan
-from .structured_llm import create_structured_llm_provider, extract_fact_structured, generate_standard_query_structured
+from .structured_llm import create_structured_llm_provider, extract_fact_structured, generate_standard_query_structured, RateLimitExceededException
 import time
 
 console = Console()
@@ -87,6 +87,11 @@ Extract the most important fact that users would commonly ask about."""
                             description=f"No fact extracted from {chunk.chunk_id}"
                         )
                         
+                except RateLimitExceededException as e:
+                    console.print(f"[red]❌ Failed to extract fact from chunk {chunk.chunk_id}: {e}[/red]")
+                    console.print("[red]🛑 Rate limit exceeded. Stopping processing to avoid further failures.[/red]")
+                    console.print("[yellow]💡 Suggestion: Wait for the rate limit to reset or switch to a different provider (--provider ollama)[/yellow]")
+                    break
                 except Exception as e:
                     console.print(f"[red]❌ Error extracting fact from {chunk.chunk_id}: {e}[/red]")
                     failure_count += 1
@@ -328,6 +333,11 @@ Return only the question, no explanation."""
                         
                     progress.update(task, advance=1)
                     
+                except RateLimitExceededException as e:
+                    console.print(f"[red]❌ Failed to generate query from fact {fact.fact_id}: {e}[/red]")
+                    console.print("[red]🛑 Rate limit exceeded. Stopping processing to avoid further failures.[/red]")
+                    console.print("[yellow]💡 Suggestion: Wait for the rate limit to reset or switch to a different provider (--provider ollama)[/yellow]")
+                    break
                 except Exception as e:
                     console.print(f"[red]❌ Error generating query for fact {fact.fact_id}: {e}[/red]")
                     failure_count += 1

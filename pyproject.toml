@@ -39,6 +39,9 @@ dependencies = [
     "instructor>=1.10.0",
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+    "huggingface-hub>=0.34.4",
+    "certifi>=2025.7.14",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
