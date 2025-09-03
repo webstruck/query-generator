@@ -254,6 +254,10 @@ class FactDataManager:
         if not facts:
             return {"count": 0, "stage": stage}
         
+        # Load config for thresholds
+        from .rag_models import RAGConfig
+        config = RAGConfig()
+        
         # Calculate statistics
         confidences = [fact.extraction_confidence for fact in facts]
         
@@ -263,8 +267,8 @@ class FactDataManager:
             "avg_confidence": sum(confidences) / len(confidences) if confidences else 0,
             "min_confidence": min(confidences) if confidences else 0,
             "max_confidence": max(confidences) if confidences else 0,
-            "high_confidence_count": sum(1 for c in confidences if c >= 0.8),
-            "low_confidence_count": sum(1 for c in confidences if c < 0.6)
+            "high_confidence_count": sum(1 for c in confidences if c >= config.high_confidence_threshold),
+            "low_confidence_count": sum(1 for c in confidences if c < config.low_confidence_threshold)
         }
         
         return summary
@@ -491,6 +495,10 @@ class QueryDataManager:
         if not queries:
             return {"count": 0, "stage": stage}
         
+        # Load config for thresholds
+        from .rag_models import RAGConfig
+        config = RAGConfig()
+        
         # Calculate statistics
         realism_scores = [q.realism_score for q in queries if hasattr(q, 'realism_score') and q.realism_score is not None]
         difficulties = [q.difficulty for q in queries if q.difficulty]
@@ -505,8 +513,8 @@ class QueryDataManager:
             "avg_realism_score": sum(realism_scores) / len(realism_scores) if realism_scores else None,
             "min_realism_score": min(realism_scores) if realism_scores else None,
             "max_realism_score": max(realism_scores) if realism_scores else None,
-            "high_realism_count": sum(1 for s in realism_scores if s >= 4.0) if realism_scores else 0,
-            "low_realism_count": sum(1 for s in realism_scores if s < 3.0) if realism_scores else 0
+            "high_realism_count": sum(1 for s in realism_scores if s >= config.high_realism_threshold) if realism_scores else 0,
+            "low_realism_count": sum(1 for s in realism_scores if s < config.low_realism_threshold) if realism_scores else 0
         }
         
         return summary

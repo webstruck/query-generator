@@ -285,13 +285,24 @@ def background_generate_rag_queries(project_name: str, project_path: Path, provi
             config = RAGConfig.load_from_file("config.yml") if Path("config.yml").exists() else RAGConfig(llm_provider=provider)
             config.llm_provider = provider
             
+            # Generate queries - need chunks map for context
+            from qgen.core.chunk_processing import ChunkProcessor
+            
+            # Load chunks to create chunks map
+            chunks_directory = project_path / "chunks"
+            chunk_processor = ChunkProcessor()
+            all_chunks = chunk_processor.load_chunks_from_directory(chunks_directory)
+            chunks_map = {chunk.chunk_id: chunk for chunk in all_chunks}
+            
             # Generate queries
             generator = StandardQueryGenerator(config)
-            queries, batch_metadata = generator.generate_queries(approved_facts, target_count=count)
+            queries, batch_metadata = generator.generate_queries_from_facts(approved_facts, chunks_map)
             
             if queries:
-                query_manager = RAGQueryDataManager()
-                query_manager.save_queries(queries, "generated", batch_metadata=batch_metadata)
+                query_manager = RAGQueryDataManager(str(project_path))
+                # Convert batch_metadata to dict for RAGQueryDataManager
+                metadata_dict = batch_metadata.model_dump() if batch_metadata else {}
+                query_manager.save_queries(queries, "generated", metadata=metadata_dict)
                 update_generation_status(project_name, "generate_queries", len(queries), target_count, f"Completed: {len(queries)} queries generated")
             else:
                 update_generation_status(project_name, "generate_queries", 0, target_count, "Error: No queries generated")
@@ -311,7 +322,7 @@ def background_generate_multihop_queries(project_name: str, project_path: Path, 
         
         try:
             # Load approved facts
-            fact_manager = FactDataManager()
+            fact_manager = FactDataManager(str(project_path))
             approved_facts = fact_manager.load_facts("approved")
             
             if not approved_facts:
@@ -328,13 +339,35 @@ def background_generate_multihop_queries(project_name: str, project_path: Path, 
             config = RAGConfig.load_from_file("config.yml") if Path("config.yml").exists() else RAGConfig(llm_provider=provider)
             config.llm_provider = provider
             
+            # Generate multi-hop queries - need chunks map for context
+            from qgen.core.chunk_processing import ChunkProcessor
+            
+            # Load chunks to create chunks map
+            chunks_directory = project_path / "chunks"
+            chunk_processor = ChunkProcessor()
+            all_chunks = chunk_processor.load_chunks_from_directory(chunks_directory)
+            chunks_map = {chunk.chunk_id: chunk for chunk in all_chunks}
+            
             # Generate multi-hop queries
             generator = AdversarialMultiHopGenerator(config)
-            queries, batch_metadata = generator.generate_multihop_queries(approved_facts, target_count=count, queries_per_combo=queries_per_combo or 1)
+            queries = generator.generate_multihop_queries(approved_facts, chunks_map)
+            
+            # Create batch metadata
+            from qgen.core.rag_models import BatchMetadata
+            batch_metadata = BatchMetadata(
+                stage="generated_multihop",
+                llm_model=getattr(generator.llm_provider, 'model_name', 'unknown'),
+                provider=provider,
+                prompt_template="adversarial_multihop",
+                total_items=len(queries),
+                success_count=len(queries)
+            )
             
             if queries:
-                query_manager = RAGQueryDataManager()
-                query_manager.save_queries(queries, "generated_multihop", batch_metadata=batch_metadata)
+                query_manager = RAGQueryDataManager(str(project_path))
+                # Convert batch_metadata to dict for RAGQueryDataManager
+                metadata_dict = batch_metadata.model_dump() if batch_metadata else {}
+                query_manager.save_queries(queries, "generated_multihop", metadata=metadata_dict)
                 update_generation_status(project_name, "generate_multihop", len(queries), target_count, f"Completed: {len(queries)} multi-hop queries generated")
             else:
                 update_generation_status(project_name, "generate_multihop", 0, target_count, "Error: No multi-hop queries generated")
@@ -354,7 +387,7 @@ def background_filter_queries(project_name: str, project_path: Path, provider: s
         
         try:
             # Load generated queries
-            query_manager = RAGQueryDataManager()
+            query_manager = RAGQueryDataManager(str(project_path))
             queries = query_manager.load_queries("generated")
             
             if not queries:
@@ -363,9 +396,11 @@ def background_filter_queries(project_name: str, project_path: Path, provider: s
             
             update_generation_status(project_name, "filter_queries", 0, len(queries), "Starting quality filtering...")
             
-            # Filter queries
+            # Filter queries using configured threshold
+            from qgen.core.rag_models import RAGConfig
+            config = RAGConfig()
             quality_filter = RAGQueryQualityFilter(provider_type=provider)
-            filtered_queries, batch_metadata = quality_filter.filter_queries_by_realism(queries, min_score or 3.0)
+            filtered_queries, batch_metadata = quality_filter.filter_queries_by_realism(queries, min_score or config.min_realism_score)
             
             # Save filtered queries
             if filtered_queries:
@@ -937,7 +972,7 @@ async def get_rag_project(project_name: str):
             generated_facts = []
             approved_facts = []
         
-        query_manager = RAGQueryDataManager()
+        query_manager = RAGQueryDataManager(str(project_path))
         try:
             generated_queries = query_manager.load_queries("generated")
             approved_queries = query_manager.load_queries("approved")
@@ -1200,7 +1235,11 @@ async def get_facts(project_name: str, stage: str):
                 print(f"    Fact: '{fact.fact_text}'")
                 print(f"    Source: '{source_text}'")
                 
-                highlighted_html = fact.get_chunk_with_highlight(source_text, similarity_threshold=0.5)
+                # Use the configured highlight similarity threshold instead of hardcoded value
+                from qgen.core.rag_models import RAGConfig
+                config = RAGConfig()
+                print(f"    Using highlight_similarity_threshold: {config.highlight_similarity_threshold}")
+                highlighted_html = fact.get_chunk_with_highlight(source_text, similarity_threshold=config.highlight_similarity_threshold)
                 
                 print(f"    Raw result: '{highlighted_html}'")
                 print(f"    Has rich markup: {'[bold yellow on blue]' in highlighted_html}")
@@ -1264,7 +1303,7 @@ async def approve_facts(project_name: str, request: ApproveItemsRequest):
         approved_facts = [fact for fact in generated_facts if fact.fact_id in request.item_ids]
         
         if approved_facts:
-            fact_manager.save_facts(approved_facts, "approved", {"approved_count": len(approved_facts)})
+            fact_manager.save_facts(approved_facts, "approved", custom_metadata={"approved_count": len(approved_facts)})
         
         return {
             "message": f"Approved {len(approved_facts)} facts",
@@ -1276,27 +1315,94 @@ async def approve_facts(project_name: str, request: ApproveItemsRequest):
 
 @app.get("/api/rag-projects/{project_name}/queries/{stage}")
 async def get_rag_queries(project_name: str, stage: str):
-    """Get RAG queries from specific stage."""
+    """Get RAG queries from specific stage with chunk highlighting."""
     try:
         project_path = get_project_path(project_name)
         if not project_path.exists() or not (project_path / ".rag_project").exists():
             raise HTTPException(status_code=404, detail="RAG project not found")
         
-        query_manager = RAGQueryDataManager()
+        query_manager = RAGQueryDataManager(str(project_path))
         queries = query_manager.load_queries(stage)
         
+        # Load chunks and facts for highlighting (same logic as CLI)
+        chunks_map = {}
+        facts_map = {}
+        
+        try:
+            # Load chunks
+            chunks_directory = project_path / "chunks"
+            chunk_processor = ChunkProcessor()
+            all_chunks = chunk_processor.load_chunks_from_directory(chunks_directory)
+            chunks_map = {chunk.chunk_id: chunk for chunk in all_chunks}
+            
+            # Load facts for better highlighting
+            fact_manager = FactDataManager(str(project_path))
+            approved_facts = fact_manager.load_facts("approved")
+            facts_map = {fact.chunk_id: fact for fact in approved_facts}
+        except Exception as e:
+            print(f"Warning: Could not load chunks/facts for highlighting: {e}")
+        
+        enhanced_queries = []
+        for query in queries:
+            highlighted_chunks = []
+            
+            # Process each source chunk for highlighting
+            for chunk_id in query.source_chunk_ids:
+                chunk = chunks_map.get(chunk_id)
+                if chunk:
+                    try:
+                        # Use same highlighting logic as CLI
+                        original_fact = facts_map.get(chunk_id)
+                        if original_fact:
+                            highlighted_text = original_fact.get_chunk_with_highlight(chunk.text)
+                            highlight_source = "original_fact"
+                        else:
+                            # Fallback to answer fact (same as CLI)
+                            from qgen.core.rag_models import ExtractedFact
+                            temp_fact = ExtractedFact(
+                                fact_text=query.answer_fact,
+                                chunk_id=chunk_id,
+                                extraction_confidence=1.0
+                            )
+                            highlighted_text = temp_fact.get_chunk_with_highlight(chunk.text)
+                            highlight_source = "answer_fact"
+                        
+                        # Convert rich markup to HTML
+                        highlighted_html = highlighted_text.replace("[bold yellow on blue]", '<mark class="bg-yellow-200 text-yellow-900 font-medium px-1 rounded">')
+                        highlighted_html = highlighted_html.replace("[/bold yellow on blue]", "</mark>")
+                        
+                        highlighted_chunks.append({
+                            "chunk_id": chunk_id,
+                            "chunk_text": chunk.text,
+                            "highlighted_html": highlighted_html,
+                            "source_document": chunk.source_document or "Unknown",
+                            "highlight_source": highlight_source,
+                            "chunk_index": len(highlighted_chunks) + 1
+                        })
+                        
+                    except Exception as e:
+                        # Fallback to plain text
+                        highlighted_chunks.append({
+                            "chunk_id": chunk_id,
+                            "chunk_text": chunk.text,
+                            "highlighted_html": chunk.text,  # No highlighting
+                            "source_document": chunk.source_document or "Unknown",
+                            "highlight_source": "none",
+                            "chunk_index": len(highlighted_chunks) + 1
+                        })
+            
+            enhanced_queries.append({
+                "query_id": query.query_id,
+                "query_text": query.query_text,
+                "answer_fact": query.answer_fact,
+                "source_chunk_ids": query.source_chunk_ids,
+                "difficulty": query.difficulty,
+                "realism_rating": getattr(query, 'realism_rating', None),
+                "highlighted_chunks": highlighted_chunks
+            })
+        
         return {
-            "queries": [
-                {
-                    "query_id": query.query_id,
-                    "query_text": query.query_text,
-                    "answer_fact": query.answer_fact,
-                    "source_chunk_ids": query.source_chunk_ids,
-                    "difficulty": query.difficulty,
-                    "realism_rating": getattr(query, 'realism_rating', None)
-                }
-                for query in queries
-            ],
+            "queries": enhanced_queries,
             "count": len(queries)
         }
         
@@ -1311,7 +1417,7 @@ async def approve_rag_queries(project_name: str, request: ApproveItemsRequest):
         if not project_path.exists() or not (project_path / ".rag_project").exists():
             raise HTTPException(status_code=404, detail="RAG project not found")
         
-        query_manager = RAGQueryDataManager()
+        query_manager = RAGQueryDataManager(str(project_path))
         
         # Load both standard and multihop queries
         standard_queries = query_manager.load_queries("generated")
@@ -1322,7 +1428,7 @@ async def approve_rag_queries(project_name: str, request: ApproveItemsRequest):
         approved_queries = [query for query in all_queries if query.query_id in request.item_ids]
         
         if approved_queries:
-            query_manager.save_queries(approved_queries, "approved", {"approved_count": len(approved_queries)})
+            query_manager.save_queries(approved_queries, "approved", metadata={"approved_count": len(approved_queries)})
         
         return {
             "message": f"Approved {len(approved_queries)} queries",
@@ -1343,7 +1449,7 @@ async def export_rag_queries(project_name: str, format: str, stage: str = "appro
         if format not in ["csv", "json"]:
             raise HTTPException(status_code=400, detail="Format must be 'csv' or 'json'")
         
-        query_manager = RAGQueryDataManager()
+        query_manager = RAGQueryDataManager(str(project_path))
         queries = query_manager.load_queries(stage)
         
         if not queries:

@@ -1142,7 +1142,7 @@ highlight_similarity_threshold: {config.highlight_similarity_threshold}  # Defau
 llm_provider: "{config.llm_provider}"  # Default: openai
 
 # Additional parameters passed to the LLM API
-# Examples: {{"temperature": 0.7, "max_tokens": 150, "top_p": 0.9}}
+# Examples: {{"temperature": 0.7, "max_tokens": 150, "top_p": 1.0}}
 llm_params: {config.llm_params}  # Default: empty (use provider defaults)
 
 # =============================================================================

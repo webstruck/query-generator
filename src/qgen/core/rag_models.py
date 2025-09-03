@@ -68,16 +68,21 @@ class ExtractedFact(BaseModel):
     span: Optional[FactSpan] = None  # Where in chunk this fact was found
     extracted_at: datetime = Field(default_factory=datetime.now)
     
-    def get_chunk_with_highlight(self, chunk_text: str, similarity_threshold: float = 0.65) -> str:
+    def get_chunk_with_highlight(self, chunk_text: str, similarity_threshold: float = None) -> str:
         """Return chunk text with fact highlighted using embedding-based similarity.
         
         Args:
             chunk_text: The chunk text to highlight
-            similarity_threshold: Minimum similarity score to highlight a sentence (default: 0.75)
+            similarity_threshold: Minimum similarity score to highlight a sentence (uses config.highlight_similarity_threshold if None)
             
         Returns:
             Chunk text with matching sentences highlighted
         """
+        # Use config value if no threshold provided
+        if similarity_threshold is None:
+            config = RAGConfig()
+            similarity_threshold = config.highlight_similarity_threshold
+            
         print(f"🚀 ENTERING get_chunk_with_highlight for fact: '{self.fact_text[:50]}...'")
         print(f"🚀 Chunk text length: {len(chunk_text)}, Threshold: {similarity_threshold}")
         
@@ -249,6 +254,10 @@ class RAGConfig(BaseModel):
     
     # Quality control
     min_realism_score: float = 3.5
+    high_confidence_threshold: float = 0.8  # Threshold for "high confidence" statistics
+    low_confidence_threshold: float = 0.6   # Threshold for "low confidence" statistics
+    high_realism_threshold: float = 4.0     # Threshold for "high realism" statistics  
+    low_realism_threshold: float = 3.0      # Threshold for "low realism" statistics
     
     # Embedding settings
     embedding_model: str = "model2vec"
@@ -256,7 +265,7 @@ class RAGConfig(BaseModel):
     cache_embeddings: bool = True
     
     # Highlighting settings
-    highlight_similarity_threshold: float = 0.65  # Minimum similarity to highlight sentences
+    highlight_similarity_threshold: float = 0.8  # Minimum similarity to highlight sentences
     
     # LLM settings
     llm_provider: str = "openai"

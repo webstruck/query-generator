@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { type RAGProject } from '../ProjectSelector'
 import { useNotification } from '../shared/Notification'
 import Highlighter from 'react-highlight-words'
+import { SingleQueryReview } from './SingleQueryReview'
 
 interface RAGProjectDashboardProps {
   project: RAGProject
@@ -106,21 +107,6 @@ const SimpleFileUpload: React.FC<{ onFileUpload: (files: FileList) => void; acce
   )
 }
 
-const SimpleProviderSelector: React.FC<{ value: string; onChange: (value: string) => void; label: string }> = ({ value, onChange, label }) => (
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-    >
-      <option value="">Select provider...</option>
-      <option value="openai">OpenAI</option>
-      <option value="azure">Azure OpenAI</option>
-      <option value="github">GitHub Models</option>
-    </select>
-  </div>
-)
 
 export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ project, onBack: _onBack }) => {
   const { showNotification, NotificationContainer } = useNotification()
@@ -138,11 +124,13 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const [selectedFacts, setSelectedFacts] = useState<Set<string>>(new Set())
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set())
   const [factStage, setFactStage] = useState<'generated' | 'approved'>('generated')
+  const [isQueryReviewOpen, setIsQueryReviewOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     loadProjectData()
     loadProviders()
-  }, [project.name])
+  }, [project.name, refreshKey])
 
   const loadProviders = async () => {
     try {
@@ -192,11 +180,15 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
           fetch(`/api/rag-projects/${project.name}/queries/approved`).then(r => r.ok ? r.json() : { queries: [] }),
           fetch(`/api/rag-projects/${project.name}/queries/generated_multihop`).then(r => r.ok ? r.json() : { queries: [] })
         ])
-        setQueries({
+        
+        const newQueries = {
           generated: generatedQueries.queries || [],
           approved: approvedQueries.queries || [],
           multihop: multihopQueries.queries || []
-        })
+        }
+        
+        console.log(`📊 Loaded queries - Generated: ${newQueries.generated.length}, Approved: ${newQueries.approved.length}, Multihop: ${newQueries.multihop.length}`)
+        setQueries(newQueries)
       } catch (e) {
         console.warn('Could not load queries:', e)
       }
@@ -215,9 +207,12 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         setOperationStatus(status)
         
         if (status.completed) {
+          console.log(`✅ Operation ${operation} completed, refreshing data...`)
           showNotification(status.message, 'success')
           setOperationStatus(null)
-          loadProjectData() // Refresh data
+          await loadProjectData() // Refresh data and wait for completion
+          setRefreshKey(prev => prev + 1) // Force re-render
+          console.log(`🔄 Data refresh completed for ${operation}`)
           return true
         }
         return false
@@ -393,6 +388,39 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       console.error('Approve queries error:', error)
       showNotification('Failed to approve queries', 'error')
     }
+  }
+
+  const handleStartSingleQueryReview = () => {
+    setIsQueryReviewOpen(true)
+  }
+
+  const handleQueryReviewComplete = async (approvedQueryIds: string[]) => {
+    if (approvedQueryIds.length > 0) {
+      try {
+        const response = await fetch(`/api/rag-projects/${project.name}/queries/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_ids: approvedQueryIds })
+        })
+
+        const result = await response.json()
+        
+        if (response.ok) {
+          showNotification(`${result.message} ✅`, 'success')
+          loadProjectData()
+        } else {
+          showNotification(result.detail || 'Failed to approve queries', 'error')
+        }
+      } catch (error) {
+        console.error('Approve queries error:', error)
+        showNotification('Failed to approve queries', 'error')
+      }
+    }
+    setIsQueryReviewOpen(false)
+  }
+
+  const handleQueryReviewCancel = () => {
+    setIsQueryReviewOpen(false)
   }
 
   const handleExport = async (format: 'json' | 'csv') => {
@@ -717,18 +745,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Standard Queries</h4>
-              <div className="flex items-center space-x-4 mb-4">
-                <SimpleProviderSelector
-                  value={provider}
-                  onChange={setProvider}
-                  label="LLM Provider"
-                />
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-3">Using provider: <span className="font-medium text-blue-600">{provider || 'None selected'}</span></p>
                 <button
                   onClick={() => handleGenerateQueries(false)}
                   disabled={!provider || !!operationStatus}
                   className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
                 >
-                  Generate
+                  Generate Standard Queries
                 </button>
               </div>
               
@@ -743,18 +767,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
 
             <div className="bg-white rounded-lg shadow p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Multi-hop Queries</h4>
-              <div className="flex items-center space-x-4 mb-4">
-                <SimpleProviderSelector
-                  value={provider}
-                  onChange={setProvider}
-                  label="LLM Provider"
-                />
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-3">Using provider: <span className="font-medium text-blue-600">{provider || 'None selected'}</span></p>
                 <button
                   onClick={() => handleGenerateQueries(true)}
                   disabled={!provider || !!operationStatus}
                   className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
                 >
-                  Generate
+                  Generate Multi-hop Queries
                 </button>
               </div>
               
@@ -768,53 +788,44 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
             </div>
           </div>
 
+          {/* Query Review Interface */}
           {((queries.generated && queries.generated.length > 0) || (queries.multihop && queries.multihop.length > 0)) && (
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h4 className="text-md font-medium text-gray-900">Review Generated Queries</h4>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">
-                    {selectedQueries.size} selected
-                  </span>
-                  <button
-                    onClick={handleApproveQueries}
-                    disabled={selectedQueries.size === 0}
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    Approve Selected
-                  </button>
-                </div>
-              </div>
-              
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {[...(queries.generated || []), ...(queries.multihop || [])].map((query) => (
-                  <div key={query.query_id} className="border rounded p-3">
-                    <label className="flex items-start space-x-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedQueries.has(query.query_id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedQueries)
-                          if (e.target.checked) {
-                            newSelected.add(query.query_id)
-                          } else {
-                            newSelected.delete(query.query_id)
-                          }
-                          setSelectedQueries(newSelected)
-                        }}
-                        className="mt-1"
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium">{query.query_text}</p>
-                        <p className="text-sm text-gray-600 mt-1">{query.answer_fact}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Difficulty: {query.difficulty} • Sources: {query.source_chunk_ids.join(', ')}
-                          {query.realism_rating && ` • Realism: ${query.realism_rating}/5`}
-                        </p>
+              <div className="text-center">
+                <h4 className="text-lg font-medium text-gray-900 mb-4">
+                  📝 Query Review Ready
+                </h4>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-blue-800">Standard Queries:</span>
+                      <div className="text-2xl font-bold text-blue-600">{queries.generated?.length || 0}</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-purple-800">Multi-hop Queries:</span>
+                      <div className="text-2xl font-bold text-purple-600">{queries.multihop?.length || 0}</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-green-800">Total Ready:</span>
+                      <div className="text-2xl font-bold text-green-600">
+                        {(queries.generated?.length || 0) + (queries.multihop?.length || 0)}
                       </div>
-                    </label>
+                    </div>
                   </div>
-                ))}
+                </div>
+
+                <button
+                  onClick={handleStartSingleQueryReview}
+                  className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 font-medium text-lg transition-colors shadow-md"
+                >
+                  🔍 Start Query Review
+                </button>
+                
+                <div className="mt-4 text-sm text-gray-600 space-y-1">
+                  <p>Review queries one at a time with full chunk context</p>
+                  <p>⌨️ Use keyboard shortcuts for fast review: A (approve), R (reject), E (edit), S (skip)</p>
+                </div>
               </div>
             </div>
           )}
@@ -943,10 +954,22 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Provider Settings */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <span className="mr-2">🔧</span>
-                  LLM Provider
-                </h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                    <span className="mr-2">🔧</span>
+                    LLM Provider
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setRefreshKey(prev => prev + 1)
+                      loadProjectData()
+                    }}
+                    className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-md transition-colors"
+                    title="Refresh data"
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
                 <div className="space-y-4">
                   <select
                     value={provider}
@@ -1071,6 +1094,16 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         {activeTab === 'queries' && renderQueriesStage()}
         {activeTab === 'export' && renderExportStage()}
       </div>
+
+      {/* Single Query Review Modal */}
+      {isQueryReviewOpen && (
+        <SingleQueryReview
+          queries={[...(queries.generated || []), ...(queries.multihop || [])]}
+          projectName={project.name}
+          onComplete={handleQueryReviewComplete}
+          onCancel={handleQueryReviewCancel}
+        />
+      )}
     </>
   )
 }

@@ -319,7 +319,7 @@ Quality Control:
             recommendations.append("Review and approve generated queries")
             recommendations.append("OR use quality filtering: qgen rag filter")
         else:
-            recommendations.append("Filter by quality: qgen rag filter --min-score 4.0")
+            recommendations.append(f"Filter by quality: qgen rag filter --min-score {config.high_realism_threshold}")
             recommendations.append("Export final dataset: qgen rag export --format jsonl")
             
         # Additional recommendations for multi-hop

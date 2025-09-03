@@ -37,3 +37,9 @@ src/qgen/web/frontend/src/components/query-generator.code-workspace
 .playwright-mcp/
 scripts/
 HIGHLIGHTING_IMPLEMENTATION.md
+cc.sh
+.DS_Store
+dim_test_*
+rag_test_*
+*.pkl
+.DS_Store
