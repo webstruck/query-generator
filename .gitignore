@@ -43,3 +43,6 @@ dim_test_*
 rag_test_*
 *.pkl
 .DS_Store
+THEME_FIX_SUMMARY.md
+DASHBOARD_THEME_STATUS.md
+src/qgen/web/frontend-shadcn/KEYBOARD_SHORTCUTS.md

@@ -12,22 +12,23 @@ from rich.console import Console
 
 console = Console()
 
-def launch_web_interface():
+def launch_web_interface(shadcn=True):
     """Launch the QGen web interface with FastAPI backend and React frontend."""
     
     # Paths
     web_dir = Path(__file__).parent
     backend_file = web_dir / "backend.py"
-    frontend_dir = web_dir / "frontend"
+    frontend_dir = web_dir / ("frontend-shadcn" if shadcn else "frontend")
     
     # Check if backend exists
     if not backend_file.exists():
         console.print("[red]❌ Backend file not found. Web interface not properly installed.[/red]")
-        return
+        returnxx
     
     # Check if frontend exists
     if not frontend_dir.exists():
-        console.print("[red]❌ Frontend directory not found. Web interface not properly installed.[/red]")
+        frontend_type = "shadcn" if shadcn else "original"
+        console.print(f"[red]❌ {frontend_type.title()} frontend directory not found. Web interface not properly installed.[/red]")
         return
     
     try:
@@ -43,7 +44,9 @@ def launch_web_interface():
         ], cwd=str(web_dir), env=env)
         
         # Start frontend dev server
-        console.print("⚛️  Starting React development server...")
+        frontend_type = "shadcn" if shadcn else "original"
+        dev_port = 5174 if shadcn else 5173
+        console.print(f"⚛️  Starting React development server ({frontend_type})...")
         frontend_process = subprocess.Popen([
             "npm", "run", "dev"
         ], cwd=str(frontend_dir))
@@ -52,12 +55,17 @@ def launch_web_interface():
         time.sleep(3)
         
         # Open browser
-        console.print("🌐 Opening web interface in browser...")
-        webbrowser.open("http://localhost:5173")
+        browser_url = f"http://localhost:{dev_port}"
+        console.print(f"🌐 Opening {frontend_type} web interface in browser...")
+        webbrowser.open(browser_url)
         
-        console.print("✅ Web interface is running!")
-        console.print("   Frontend: http://localhost:5173")
+        console.print(f"✅ {frontend_type.title()} web interface is running!")
+        console.print(f"   Frontend: {browser_url}")
         console.print("   Backend API: http://localhost:8888")
+        if shadcn:
+            console.print("   Original: http://localhost:5173 (if running)")
+        else:
+            console.print("   Shadcn: http://localhost:5174 (if running)")
         console.print("")
         console.print("Press Ctrl+C to stop servers")
         
@@ -84,4 +92,9 @@ def launch_web_interface():
         console.print(f"[red]❌ Failed to start web interface: {e}[/red]")
 
 if __name__ == "__main__":
-    launch_web_interface()
+    import argparse
+    parser = argparse.ArgumentParser(description='Launch QGen web interface')
+    parser.add_argument('--shadcn', action='store_true', help='Launch shadcn/ui version instead of original')
+    args = parser.parse_args()
+    
+    launch_web_interface(shadcn=args.shadcn)

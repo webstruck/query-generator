@@ -1480,6 +1480,13 @@ async def get_rag_operation_status(project_name: str, operation: str):
 
 # Serve static files (React build) in production
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
+frontend_shadcn_dist = Path(__file__).parent / "frontend-shadcn" / "dist"
+
+# Serve shadcn version at /shadcn route
+if frontend_shadcn_dist.exists():
+    app.mount("/shadcn", StaticFiles(directory=str(frontend_shadcn_dist), html=True), name="shadcn")
+
+# Serve original version at root
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
 
