@@ -4,8 +4,10 @@ import { useNotification } from '../shared/Notification'
 import { SingleQueryReview } from './SingleQueryReview'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 import { Progress } from '@/components/ui/progress'
 import { LayoutDashboard, Database, Lightbulb, FileText, Download, Settings, AlertTriangle, File, Search, Rocket, Upload } from 'lucide-react'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface RAGProjectDashboardProps {
   project: RAGProject
@@ -128,6 +130,90 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const [factStage, setFactStage] = useState<'generated' | 'approved'>('generated')
   const [isQueryReviewOpen, setIsQueryReviewOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Helper functions and getters
+  const getChunksCount = () => chunkFiles.reduce((sum, file) => sum + file.chunks_count, 0)
+  const getGeneratedFactsCount = () => facts.generated?.length || 0
+  const getApprovedFactsCount = () => facts.approved?.length || 0
+  const getGeneratedQueriesCount = () => (queries.generated?.length || 0) + (queries.multihop?.length || 0)
+  const getApprovedQueriesCount = () => queries.approved?.length || 0
+
+  // Helper functions for keyboard shortcuts
+  const extractFacts = () => handleExtractFacts()
+  const generateQueries = () => handleGenerateQueries(false)
+  const generateQueriesOfType = (type: 'standard' | 'multihop') => handleGenerateQueries(type === 'multihop')
+  const startQueryReview = () => handleStartSingleQueryReview()
+  const exportQueries = (format: 'json' | 'csv') => handleExport(format)
+  const selectAllFacts = () => {
+    const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
+    const allFactIds = new Set(currentFacts?.map(fact => fact.fact_id) || [])
+    setSelectedFacts(allFactIds)
+  }
+  const selectNoneFacts = () => setSelectedFacts(new Set())
+  const bulkApproveFacts = () => handleApproveFacts()
+
+  const handleIndividualApprove = async (factId: string) => {
+    try {
+      const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_ids: [factId] })
+      })
+
+      const result = await response.json()
+      
+      if (response.ok) {
+        showNotification('Fact approved successfully!', 'success')
+        loadProjectData()
+      } else {
+        showNotification(result.detail || 'Failed to approve fact', 'error')
+      }
+    } catch (error) {
+      console.error('Individual approve error:', error)
+      showNotification('Failed to approve fact', 'error')
+    }
+  }
+
+  const handleIndividualReject = async (factId: string) => {
+    // For now, just remove from selection
+    const newSelected = new Set(selectedFacts)
+    newSelected.delete(factId)
+    setSelectedFacts(newSelected)
+    showNotification('Fact rejected', 'info')
+  }
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Tab navigation
+      { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
+      { keys: ['2'], handler: () => setActiveTab('chunks'), description: 'Chunks tab' },
+      { keys: ['3'], handler: () => setActiveTab('facts'), description: 'Facts tab' },
+      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
+      
+      // Main workflow actions
+      { keys: ['U'], handler: () => setActiveTab('chunks'), description: 'Upload chunks', enabled: activeTab === 'overview' },
+      { keys: ['F'], handler: extractFacts, description: 'Extract facts', enabled: getChunksCount() > 0 },
+      { keys: ['G'], handler: generateQueries, description: 'Generate queries', enabled: getApprovedFactsCount() > 0 },
+      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: getApprovedQueriesCount() > 0 },
+      
+      // Facts review (when on facts tab)
+      { keys: ['⌘', 'A'], handler: selectAllFacts, description: 'Select all facts', enabled: activeTab === 'facts' && getGeneratedFactsCount() > 0 },
+      { keys: ['⌘', 'D'], handler: selectNoneFacts, description: 'Select none', enabled: activeTab === 'facts' },
+      { keys: ['A'], handler: bulkApproveFacts, description: 'Approve selected facts', enabled: activeTab === 'facts' && selectedFacts.size > 0 },
+      
+      // Query generation (when on queries tab)
+      { keys: ['S'], handler: () => generateQueriesOfType('standard'), description: 'Generate standard queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
+      { keys: ['M'], handler: () => generateQueriesOfType('multihop'), description: 'Generate multi-hop queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
+      { keys: ['↵'], handler: startQueryReview, description: 'Start query review', enabled: getGeneratedQueriesCount() > 0 },
+      
+      // Export (when on export tab)
+      { keys: ['⌘', 'J'], handler: () => exportQueries('json'), description: 'Export JSON', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 },
+      { keys: ['⌘', 'C'], handler: () => exportQueries('csv'), description: 'Export CSV', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 }
+    ],
+    enabled: true
+  })
 
   useEffect(() => {
     loadProjectData()
@@ -413,12 +499,6 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
     }
   }
 
-  const getChunksCount = () => chunkFiles.reduce((sum, file) => sum + file.chunks_count, 0)
-  const getGeneratedFactsCount = () => facts.generated?.length || 0
-  const getApprovedFactsCount = () => facts.approved?.length || 0
-  const getGeneratedQueriesCount = () => (queries.generated?.length || 0) + (queries.multihop?.length || 0)
-  const getApprovedQueriesCount = () => queries.approved?.length || 0
-
   const renderChunksStage = () => (
     <Card className="p-6">
       <div className="flex justify-between items-center mb-6">
@@ -476,45 +556,6 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
 
   const renderFactsStage = () => {
     const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
-    
-    const selectAllFacts = () => {
-      const allFactIds = new Set(currentFacts.map(fact => fact.fact_id))
-      setSelectedFacts(allFactIds)
-    }
-
-    const selectNoneFacts = () => {
-      setSelectedFacts(new Set())
-    }
-
-    const handleIndividualApprove = async (factId: string) => {
-      try {
-        const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_ids: [factId] })
-        })
-
-        const result = await response.json()
-        
-        if (response.ok) {
-          showNotification('Fact approved successfully!', 'success')
-          loadProjectData()
-        } else {
-          showNotification(result.detail || 'Failed to approve fact', 'error')
-        }
-      } catch (error) {
-        console.error('Individual approve error:', error)
-        showNotification('Failed to approve fact', 'error')
-      }
-    }
-
-    const handleIndividualReject = async (factId: string) => {
-      // For now, just remove from selection
-      const newSelected = new Set(selectedFacts)
-      newSelected.delete(factId)
-      setSelectedFacts(newSelected)
-      showNotification('Fact rejected', 'info')
-    }
 
 
     return (
@@ -542,12 +583,13 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                 {factStage === 'generated' ? 'No facts generated yet' : 'No facts approved yet'}
               </p>
               {factStage === 'generated' && (
-                <Button
+                <ButtonWithShortcut
                   onClick={handleExtractFacts}
                   disabled={getChunksCount() === 0 || !provider || !!operationStatus}
+                  shortcut={['F']}
                 >
                   Extract Facts
-                </Button>
+                </ButtonWithShortcut>
               )}
             </div>
           </Card>
@@ -560,18 +602,24 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   {/* Selection Controls */}
                   <div className="flex items-center space-x-4">
                     <div className="flex space-x-2">
-                      <button
+                      <ButtonWithShortcut
                         onClick={selectAllFacts}
                         className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
+                        variant="outline"
+                        size="sm"
+                        shortcut={['⌘', 'A']}
                       >
                         All
-                      </button>
-                      <button
+                      </ButtonWithShortcut>
+                      <ButtonWithShortcut
                         onClick={selectNoneFacts}
                         className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
+                        variant="outline"
+                        size="sm"
+                        shortcut={['⌘', 'D']}
                       >
                         None
-                      </button>
+                      </ButtonWithShortcut>
                     </div>
                     
                     <span className="text-sm text-muted-foreground">
@@ -585,13 +633,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   {/* Action Buttons */}
                   {selectedFacts.size > 0 && (
                     <div className="flex space-x-2">
-                      <Button
+                      <ButtonWithShortcut
                         onClick={handleApproveFacts}
                         disabled={_loading}
                         variant="default"
+                        shortcut={['A']}
                       >
                         Approve Selected
-                      </Button>
+                      </ButtonWithShortcut>
                     </div>
                   )}
                 </div>
@@ -677,7 +726,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                       {/* Individual Actions - Only for Generated */}
                       {factStage === 'generated' && (
                         <div className="flex space-x-2">
-                          <Button
+                          <ButtonWithShortcut
                             onClick={(e) => {
                               e.stopPropagation()
                               handleIndividualApprove(fact.fact_id)
@@ -685,19 +734,21 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                             size="sm"
                             variant="default"
                             className="bg-green-600 hover:bg-green-700"
+                            shortcut={['A']}
                           >
                             Approve
-                          </Button>
-                          <Button
+                          </ButtonWithShortcut>
+                          <ButtonWithShortcut
                             onClick={(e) => {
                               e.stopPropagation()
                               handleIndividualReject(fact.fact_id)
                             }}
                             size="sm"
                             variant="destructive"
+                            shortcut={['R']}
                           >
                             Reject
-                          </Button>
+                          </ButtonWithShortcut>
                         </div>
                       )}
                     </div>
@@ -731,13 +782,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
               <h4 className="text-md font-medium text-foreground mb-4">Standard Queries</h4>
               <div className="mb-4">
                 <p className="text-sm text-muted-foreground mb-3">Using provider: <span className="font-medium text-primary">{provider || 'None selected'}</span></p>
-                <Button
+                <ButtonWithShortcut
                   onClick={() => handleGenerateQueries(false)}
                   disabled={!provider || !!operationStatus}
                   className="bg-green-600 hover:bg-green-700"
+                  shortcut={['S']}
                 >
                   Generate Standard Queries
-                </Button>
+                </ButtonWithShortcut>
               </div>
               
               {operationStatus?.operation === 'generate_queries' && (
@@ -753,13 +805,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
               <h4 className="text-md font-medium text-foreground mb-4">Multi-hop Queries</h4>
               <div className="mb-4">
                 <p className="text-sm text-muted-foreground mb-3">Using provider: <span className="font-medium text-primary">{provider || 'None selected'}</span></p>
-                <Button
+                <ButtonWithShortcut
                   onClick={() => handleGenerateQueries(true)}
                   disabled={!provider || !!operationStatus}
                   className="bg-purple-600 hover:bg-purple-700"
+                  shortcut={['M']}
                 >
                   Generate Multi-hop Queries
-                </Button>
+                </ButtonWithShortcut>
               </div>
               
               {operationStatus?.operation === 'generate_multihop' && (
@@ -802,13 +855,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   </div>
                 </div>
 
-                <Button
+                <ButtonWithShortcut
                   onClick={handleStartSingleQueryReview}
                   className="bg-blue-600 hover:bg-blue-700 font-medium text-lg shadow-md"
                   size="lg"
+                  shortcut="submit"
                 >
                   Start Query Review
-                </Button>
+                </ButtonWithShortcut>
                 
                 <div className="mt-4 text-sm text-muted-foreground space-y-1">
                   <p>Review queries one at a time with full chunk context</p>
@@ -860,13 +914,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
               <p className="text-sm text-muted-foreground mb-3">
                 Structured JSON format, perfect for APIs and programmatic use.
               </p>
-              <Button
+              <ButtonWithShortcut
                 onClick={() => handleExport('json')}
                 className="w-full"
                 variant="default"
+                shortcut={['⌘', 'J']}
               >
                 Export JSON
-              </Button>
+              </ButtonWithShortcut>
             </Card>
             <Card className="p-4">
               <h4 className="font-medium text-foreground mb-2 flex items-center">
@@ -876,13 +931,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
               <p className="text-sm text-muted-foreground mb-3">
                 Comma-separated values format, ideal for spreadsheets and data analysis.
               </p>
-              <Button
+              <ButtonWithShortcut
                 onClick={() => handleExport('csv')}
                 className="w-full"
                 variant="secondary"
+                shortcut={['⌘', 'C']}
               >
                 Export CSV
-              </Button>
+              </ButtonWithShortcut>
             </Card>
           </div>
         )}
@@ -1040,11 +1096,12 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                     <h4 className="font-medium text-foreground">1. Upload Document Chunks</h4>
                     <p className="text-sm text-muted-foreground">Upload JSONL files containing your preprocessed document chunks</p>
                   </div>
-                  <Button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('chunks')}
+                    shortcut={['U']}
                   >
                     Upload
-                  </Button>
+                  </ButtonWithShortcut>
                 </div>
 
                 <div className="flex items-center justify-between p-4 border border-border rounded-lg">
@@ -1052,13 +1109,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                     <h4 className="font-medium text-foreground">2. Extract Facts</h4>
                     <p className="text-sm text-muted-foreground">Extract structured facts from uploaded chunks using LLM</p>
                   </div>
-                  <Button
+                  <ButtonWithShortcut
                     onClick={handleExtractFacts}
                     disabled={getChunksCount() === 0 || !provider || !!operationStatus}
                     className="bg-indigo-600 hover:bg-indigo-700"
+                    shortcut={['F']}
                   >
                     Extract
-                  </Button>
+                  </ButtonWithShortcut>
                 </div>
 
                 <div className="flex items-center justify-between p-4 border border-border rounded-lg">
@@ -1066,13 +1124,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                     <h4 className="font-medium text-foreground">3. Generate Queries</h4>
                     <p className="text-sm text-muted-foreground">Generate both standard and multi-hop queries from approved facts</p>
                   </div>
-                  <Button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('queries')}
                     disabled={getApprovedFactsCount() === 0}
                     className="bg-purple-600 hover:bg-purple-700"
+                    shortcut={['G']}
                   >
                     Generate
-                  </Button>
+                  </ButtonWithShortcut>
                 </div>
 
                 <div className="flex items-center justify-between p-4 border border-border rounded-lg">
@@ -1080,13 +1139,14 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                     <h4 className="font-medium text-foreground">4. Export Dataset</h4>
                     <p className="text-sm text-muted-foreground">Download your final approved query dataset</p>
                   </div>
-                  <Button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('export')}
                     disabled={getApprovedQueriesCount() === 0}
                     className="bg-emerald-600 hover:bg-emerald-700"
+                    shortcut={['X']}
                   >
                     Export
-                  </Button>
+                  </ButtonWithShortcut>
                 </div>
               </div>
             </Card>

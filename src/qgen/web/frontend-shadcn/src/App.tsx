@@ -2,15 +2,35 @@ import { useState } from 'react'
 import ProjectSelector, { type Project } from './components/ProjectSelector'
 import DimensionProjectDashboard from './components/dimension/DimensionProjectDashboard'
 import { RAGProjectDashboard } from './components/rag/RAGProjectDashboard'
-import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 import { Badge } from '@/components/ui/badge'
 import { useTheme } from '@/hooks/use-theme'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { BarChart3, Brain, HelpCircle } from 'lucide-react'
 
 function App() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(false)
   const { theme, toggleTheme } = useTheme()
+
+  // Global keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        keys: ['T'],
+        handler: () => toggleTheme(),
+        description: 'Toggle theme',
+        enabled: true
+      },
+      {
+        keys: ['P'],
+        handler: () => setCurrentProject(null),
+        description: 'Switch project',
+        enabled: !!currentProject
+      }
+    ],
+    enabled: true
+  })
 
   const renderDashboard = () => {
     if (!currentProject) return null
@@ -51,13 +71,14 @@ function App() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Button
+              <ButtonWithShortcut
                 variant="outline"
                 size="sm"
                 onClick={toggleTheme}
+                shortcut={['T']}
               >
                 {theme === 'dark' ? 'Light' : 'Dark'}
-              </Button>
+              </ButtonWithShortcut>
               
               {currentProject && (
                 <>
@@ -71,13 +92,14 @@ function App() {
                       ({currentProject.domain})
                     </span>
                   </Badge>
-                  <Button
+                  <ButtonWithShortcut
                     variant="ghost"
                     size="sm"
                     onClick={() => setCurrentProject(null)}
+                    shortcut={['P']}
                   >
                     Switch Project
-                  </Button>
+                  </ButtonWithShortcut>
                 </>
               )}
             </div>

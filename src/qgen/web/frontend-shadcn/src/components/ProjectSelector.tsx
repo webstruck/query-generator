@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNotification } from './shared/Notification'
 import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { BarChart3, Brain } from 'lucide-react'
 
 // Base project interface
@@ -61,6 +63,37 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
   const [creating, setCreating] = useState(false)
   const [templates, setTemplates] = useState<string[]>([])
   const { showNotification, NotificationContainer } = useNotification()
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        keys: ['1'],
+        handler: () => setProjectType('dimension'),
+        description: 'Switch to dimension projects',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['2'],
+        handler: () => setProjectType('rag'),
+        description: 'Switch to RAG projects',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['N'],
+        handler: () => setShowCreateModal(true),
+        description: 'New project',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['Esc'],
+        handler: () => setShowCreateModal(false),
+        description: 'Close modal',
+        enabled: showCreateModal
+      }
+    ],
+    enabled: true
+  })
 
   useEffect(() => {
     loadProjects()
@@ -197,13 +230,14 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
               {projectType === 'dimension' ? 'Dimension Projects' : 'RAG Projects'}
             </span>
           </h2>
-          <Button 
+          <ButtonWithShortcut 
             onClick={() => setShowCreateModal(true)}
             variant={projectType === 'dimension' ? 'default' : 'secondary'}
+            shortcut={['N']}
           >
             <span className="mr-2">+</span>
             <span>New Project</span>
-          </Button>
+          </ButtonWithShortcut>
         </div>
 
         {/* Projects Grid */}
@@ -326,7 +360,7 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
           </div>
           
           <div className="flex items-center justify-end space-x-3 mt-6">
-            <Button
+            <ButtonWithShortcut
               variant="outline"
               onClick={() => {
                 setShowCreateModal(false)
@@ -334,16 +368,18 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
                 setNewProjectDomain(projectType === 'dimension' ? (templates[0] || 'general') : 'general')
               }}
               disabled={creating}
+              shortcut="cancel"
             >
               Cancel
-            </Button>
-            <Button
+            </ButtonWithShortcut>
+            <ButtonWithShortcut
               onClick={createProject}
               disabled={creating || !newProjectName.trim()}
               variant={projectType === 'dimension' ? 'default' : 'secondary'}
+              shortcut="save"
             >
               {creating ? 'Creating...' : 'Create Project'}
-            </Button>
+            </ButtonWithShortcut>
           </div>
         </DialogContent>
       </Dialog>

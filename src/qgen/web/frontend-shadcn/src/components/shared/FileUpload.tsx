@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface FileUploadProps {
   onUpload: (files: File[]) => void
@@ -22,6 +23,19 @@ export default function FileUpload({
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploading] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Add keyboard shortcut for file upload
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        keys: ['⌘', 'U'],
+        handler: () => fileInputRef.current?.click(),
+        description: 'Upload file',
+        enabled: !disabled
+      }
+    ]
+  })
 
   const validateFile = (file: File): string | null => {
     if (maxSize && file.size > maxSize * 1024 * 1024) {
@@ -123,6 +137,7 @@ export default function FileUpload({
         `}
       >
         <input
+          ref={fileInputRef}
           type="file"
           accept={accept}
           multiple={multiple}

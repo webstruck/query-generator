@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { ChunkHighlighter, type HighlightSpan, HighlightLegend, type HighlightType } from './ChunkHighlighter'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 
 export interface FactCardProps {
   /** Fact information */
@@ -176,20 +177,24 @@ export const FactCard: React.FC<FactCardProps> = ({
         {/* Individual Actions */}
         {showActions && (
           <div className="flex flex-col space-y-2 shrink-0">
-            <button
+            <ButtonWithShortcut
               onClick={handleApprove}
               className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors"
               title="Approve this fact"
+              shortcut="approve"
+              showShortcut={false}
             >
               Approve
-            </button>
-            <button
+            </ButtonWithShortcut>
+            <ButtonWithShortcut
               onClick={handleReject}
               className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors"
               title="Reject this fact"
+              shortcut="reject"
+              showShortcut={false}
             >
               Reject
-            </button>
+            </ButtonWithShortcut>
           </div>
         )}
       </div>

@@ -6,6 +6,8 @@ import { type DimensionProject } from '../ProjectSelector'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '../ui/button-with-shortcut'
+import { useKeyboardShortcuts } from '../../hooks/use-keyboard-shortcuts'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Input } from '@/components/ui/input'
@@ -385,6 +387,35 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
     }
   }
 
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Tab navigation
+      { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
+      { keys: ['2'], handler: () => setActiveTab('dimensions'), description: 'Dimensions tab' },
+      { keys: ['3'], handler: () => setActiveTab('tuples'), description: 'Tuples tab' },
+      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
+      
+      // Main workflow actions (only when not editing)
+      { keys: ['E'], handler: () => setActiveTab('dimensions'), description: 'Edit dimensions', enabled: !editingDimensions },
+      { keys: ['G'], handler: generateTuples, description: 'Generate tuples', enabled: !loading && !editingDimensions },
+      { keys: ['A'], handler: approveTuples, description: 'Approve all tuples', enabled: !loading && (projectData?.data_status?.generated_tuples || 0) > 0 && !editingDimensions },
+      { keys: ['Q'], handler: generateQueries, description: 'Generate queries', enabled: !loading && (projectData?.data_status?.approved_tuples || 0) > 0 && !editingDimensions },
+      { keys: ['R'], handler: () => setActiveTab('queries'), description: 'Review queries', enabled: (projectData?.data_status?.generated_queries || 0) > 0 && !editingDimensions },
+      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: (projectData?.data_status?.approved_queries || 0) > 0 && !editingDimensions },
+      
+      // Dimension editing (only when editing)
+      { keys: ['⌘', 'S'], handler: saveDimensions, description: 'Save dimensions', enabled: editingDimensions },
+      { keys: ['Esc'], handler: cancelEditingDimensions, description: 'Cancel editing', enabled: editingDimensions },
+      
+      // Export actions (when on export tab)
+      { keys: ['⌘', 'C'], handler: () => exportData('csv'), description: 'Export CSV', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 },
+      { keys: ['⌘', 'J'], handler: () => exportData('json'), description: 'Export JSON', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 }
+    ],
+    enabled: true
+  })
+
   if (!projectData) {
     return <div className="text-center py-8">Loading project...</div>
   }
@@ -427,14 +458,14 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
             <Target className="h-4 w-4" />
             Tuples
             <Badge variant="secondary" className="ml-1">
-              {projectData.data_status.generated_tuples}
+              {projectData?.data_status?.generated_tuples || 0}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="queries" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Queries
             <Badge variant="secondary" className="ml-1">
-              {projectData.data_status.generated_queries}
+              {projectData?.data_status?.generated_queries || 0}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="export" className="flex items-center gap-2">
@@ -485,11 +516,11 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
               <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Generated</span>
-                  <span className="text-2xl font-bold text-blue-600">{projectData.data_status.generated_tuples}</span>
+                  <span className="text-2xl font-bold text-blue-600">{projectData?.data_status?.generated_tuples || 0}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Approved</span>
-                  <span className="text-2xl font-bold text-green-600">{projectData.data_status.approved_tuples}</span>
+                  <span className="text-2xl font-bold text-green-600">{projectData?.data_status?.approved_tuples || 0}</span>
                 </div>
               </CardContent>
             </Card>
@@ -505,11 +536,11 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
               <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Generated</span>
-                  <span className="text-2xl font-bold text-purple-600">{projectData.data_status.generated_queries}</span>
+                  <span className="text-2xl font-bold text-purple-600">{projectData?.data_status?.generated_queries || 0}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Approved</span>
-                  <span className="text-2xl font-bold text-emerald-600">{projectData.data_status.approved_queries}</span>
+                  <span className="text-2xl font-bold text-emerald-600">{projectData?.data_status?.approved_queries || 0}</span>
                 </div>
               </CardContent>
             </Card>
@@ -529,12 +560,13 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">1. Review & Edit Dimensions</h4>
                   <p className="text-sm text-muted-foreground">Define and customize the dimensions that will drive query generation</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('dimensions')}
                   variant="default"
+                  shortcut="edit"
                 >
                   Edit
-                </Button>
+                </ButtonWithShortcut>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -542,17 +574,18 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">2. Generate Tuples</h4>
                   <p className="text-sm text-muted-foreground">Create dimension combinations from your project dimensions</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={generateTuples}
                   disabled={loading}
                   variant="secondary"
                   className="flex items-center space-x-2"
+                  shortcut={['G']}
                 >
                   {generatingTuples && (
                     <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
                   <span>{generatingTuples ? 'Generating...' : 'Generate'}</span>
-                </Button>
+                </ButtonWithShortcut>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -560,17 +593,18 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">3. Approve Tuples</h4>
                   <p className="text-sm text-muted-foreground">Review and approve generated tuples (simplified - approves all)</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={approveTuples}
-                  disabled={loading || projectData.data_status.generated_tuples === 0}
+                  disabled={loading || (projectData?.data_status?.generated_tuples || 0) === 0}
                   variant="default"
                   className="flex items-center space-x-2"
+                  shortcut={['A']}
                 >
                   {approvingTuples && (
                     <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
                   <span>{approvingTuples ? 'Approving...' : 'Approve All'}</span>
-                </Button>
+                </ButtonWithShortcut>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -578,17 +612,18 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">4. Generate Queries</h4>
                   <p className="text-sm text-muted-foreground">Create natural language queries from approved tuples</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={generateQueries}
-                  disabled={loading || projectData.data_status.approved_tuples === 0}
+                  disabled={loading || (projectData?.data_status?.approved_tuples || 0) === 0}
                   variant="secondary"
                   className="flex items-center space-x-2"
+                  shortcut={['Q']}
                 >
                   {generatingQueries && (
                     <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
                   <span>{generatingQueries ? 'Generating...' : 'Generate'}</span>
-                </Button>
+                </ButtonWithShortcut>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -596,13 +631,14 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">5. Review & Approve Queries</h4>
                   <p className="text-sm text-muted-foreground">Review, edit, approve, or reject individual queries</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('queries')}
-                  disabled={projectData.data_status.generated_queries === 0}
+                  disabled={(projectData?.data_status?.generated_queries || 0) === 0}
                   variant="outline"
+                  shortcut={['R']}
                 >
                   Review
-                </Button>
+                </ButtonWithShortcut>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -610,13 +646,14 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <h4 className="font-medium">6. Export Dataset</h4>
                   <p className="text-sm text-muted-foreground">Download your final approved query dataset</p>
                 </div>
-                <Button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('export')}
-                  disabled={projectData.data_status.approved_queries === 0}
+                  disabled={(projectData?.data_status?.approved_queries || 0) === 0}
                   variant="outline"
+                  shortcut={['X']}
                 >
                   Export
-                </Button>
+                </ButtonWithShortcut>
               </div>
             </CardContent>
           </Card>
@@ -639,19 +676,21 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   </Button>
                 ) : (
                   <div className="space-x-2">
-                    <Button
+                    <ButtonWithShortcut
                       onClick={saveDimensions}
                       disabled={loading}
                       variant="default"
+                      shortcut="save"
                     >
                       Save
-                    </Button>
-                    <Button
+                    </ButtonWithShortcut>
+                    <ButtonWithShortcut
                       onClick={cancelEditingDimensions}
                       variant="outline"
+                      shortcut="cancel"
                     >
                       Cancel
-                    </Button>
+                    </ButtonWithShortcut>
                   </div>
                 )}
               </div>
@@ -816,9 +855,9 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
             <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
               <h4 className="font-medium text-foreground mb-2">Export Summary</h4>
               <div className="text-sm text-muted-foreground">
-                <p>• Approved Queries: {projectData.data_status.approved_queries}</p>
-                <p>• Total Generated: {projectData.data_status.generated_queries}</p>
-                <p>• Ready for export: {projectData.data_status.approved_queries > 0 ? 'Yes' : 'No approved queries yet'}</p>
+                <p>• Approved Queries: {projectData?.data_status?.approved_queries || 0}</p>
+                <p>• Total Generated: {projectData?.data_status?.generated_queries || 0}</p>
+                <p>• Ready for export: {(projectData?.data_status?.approved_queries || 0) > 0 ? 'Yes' : 'No approved queries yet'}</p>
               </div>
             </div>
             
@@ -836,14 +875,15 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <p className="text-sm text-muted-foreground mb-3">
                     Comma-separated values format, ideal for spreadsheets and data analysis.
                   </p>
-                  <Button 
+                  <ButtonWithShortcut 
                     onClick={() => exportData('csv')}
-                    disabled={loading || projectData.data_status.approved_queries === 0}
+                    disabled={loading || (projectData?.data_status?.approved_queries || 0) === 0}
                     className="w-full"
                     variant="default"
+                    shortcut={['⌘', 'C']}
                   >
                     {loading ? 'Exporting...' : 'Export CSV'}
-                  </Button>
+                  </ButtonWithShortcut>
                 </Card>
                 
                 <Card className="p-4">
@@ -854,19 +894,20 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   <p className="text-sm text-muted-foreground mb-3">
                     Structured JSON format, perfect for APIs and programmatic use.
                   </p>
-                  <Button 
+                  <ButtonWithShortcut 
                     onClick={() => exportData('json')}
-                    disabled={loading || projectData.data_status.approved_queries === 0}
+                    disabled={loading || (projectData?.data_status?.approved_queries || 0) === 0}
                     className="w-full"
                     variant="secondary"
+                    shortcut={['⌘', 'J']}
                   >
                     {loading ? 'Exporting...' : 'Export JSON'}
-                  </Button>
+                  </ButtonWithShortcut>
                 </Card>
               </div>
             </div>
             
-            {projectData.data_status.approved_queries === 0 && (
+            {(projectData?.data_status?.approved_queries || 0) === 0 && (
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                 <p className="text-amber-800 dark:text-amber-200 text-sm flex items-center">
                   <AlertTriangle className="mr-2 h-4 w-4" />

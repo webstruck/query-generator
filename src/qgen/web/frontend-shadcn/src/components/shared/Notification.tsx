@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle, XCircle, Info, X } from 'lucide-react'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 
 interface NotificationProps {
   message: string
@@ -55,15 +56,17 @@ export default function Notification({ message, type, onClose, duration = 4000 }
       <div className="flex items-center space-x-3">
         <span>{getIcon()}</span>
         <span className="font-medium">{message}</span>
-        <button
+        <ButtonWithShortcut
           onClick={() => {
             setIsVisible(false)
             setTimeout(onClose, 300)
           }}
-          className="ml-4 text-gray-500 hover:text-gray-700"
+          className="ml-4 text-gray-500 hover:text-gray-700 bg-transparent border-none p-0 h-auto"
+          shortcut="close"
+          showShortcut={false}
         >
           <X className="h-4 w-4" />
-        </button>
+        </ButtonWithShortcut>
       </div>
     </div>
   )
