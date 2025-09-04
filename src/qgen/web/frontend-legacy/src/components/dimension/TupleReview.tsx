@@ -1,11 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNotification } from '../shared/Notification'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Target } from 'lucide-react'
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface Tuple {
   values: Record<string, string>
@@ -52,7 +46,7 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
       
       await loadTuples()
       setSelectedTuples(new Set())
-      showNotification('Selected tuples approved successfully!', 'success')
+      showNotification('Selected tuples approved successfully! ✅', 'success')
     } catch (error) {
       showNotification(`Failed to approve tuples: ${error}`, 'error')
     } finally {
@@ -76,7 +70,7 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
       
       await loadTuples()
       setSelectedTuples(new Set())
-      showNotification('Selected tuples rejected successfully!', 'success')
+      showNotification('Selected tuples rejected successfully! ❌', 'success')
     } catch (error) {
       showNotification(`Failed to reject tuples: ${error}`, 'error')
     } finally {
@@ -107,115 +101,85 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
     const baseClasses = "p-4 rounded-lg border-2 mb-3 transition-all cursor-pointer"
     
     if (isSelected) {
-      return `${baseClasses} border-primary bg-primary/5 shadow-md`
+      return `${baseClasses} border-blue-500 bg-blue-50 shadow-md`
     }
     
-    return `${baseClasses} border-border bg-muted/50 hover:border-muted-foreground/50 hover:shadow-sm`
+    return `${baseClasses} border-gray-200 bg-gray-50 hover:border-gray-300 hover:shadow-sm`
   }
-
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    shortcuts: [
-      // Selection (only for generated tuples)
-      { keys: ['⌘', 'A'], handler: selectAll, description: 'Select all tuples', enabled: stage === 'generated' },
-      { keys: ['⌘', 'D'], handler: selectNone, description: 'Select none', enabled: stage === 'generated' },
-      
-      // Bulk actions (when tuples selected)
-      { keys: ['A'], handler: bulkApprove, description: 'Approve selected', enabled: selectedTuples.size > 0 && stage === 'generated' },
-      { keys: ['R'], handler: bulkReject, description: 'Reject selected', enabled: selectedTuples.size > 0 && stage === 'generated' }
-    ],
-    enabled: true
-  })
 
   return (
     <>
       <NotificationContainer />
       <div>
         {/* Header with Stage Selection */}
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle className="flex items-center">
-                <Target className="mr-2 h-4 w-4" />
-                Tuple Review
-              </CardTitle>
-              <Select value={stage} onValueChange={(value: 'generated' | 'approved') => setStage(value)}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="generated">Generated Tuples</SelectItem>
-                  <SelectItem value="approved">Approved Tuples</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeader>
-        </Card>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-semibold text-gray-900">🎯 Tuple Review</h3>
+          <select
+            value={stage}
+            onChange={(e) => setStage(e.target.value as 'generated' | 'approved')}
+            className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="generated">Generated Tuples</option>
+            <option value="approved">Approved Tuples</option>
+          </select>
+        </div>
 
         {/* Floating Action Bar - Only for Generated */}
         {stage === 'generated' && (
-          <Card className="mb-6 sticky top-4 z-10">
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                {/* Selection Controls */}
-                <div className="flex items-center space-x-4">
-                  <div className="flex space-x-2">
-                    <ButtonWithShortcut
-                      onClick={selectAll}
-                      variant="outline"
-                      size="sm"
-                      shortcut={['⌘', 'A']}
-                    >
-                      All
-                    </ButtonWithShortcut>
-                    <ButtonWithShortcut
-                      onClick={selectNone}
-                      variant="outline"
-                      size="sm"
-                      shortcut={['⌘', 'D']}
-                    >
-                      None
-                    </ButtonWithShortcut>
-                  </div>
-                  
-                  <span className="text-sm text-muted-foreground">
-                    {selectedTuples.size === 0 
-                      ? 'No tuples selected' 
-                      : `${selectedTuples.size} selected`
-                    }
-                  </span>
+          <div className="bg-white rounded-lg shadow-sm border p-4 mb-6 sticky top-4 z-10">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              {/* Selection Controls */}
+              <div className="flex items-center space-x-4">
+                <div className="flex space-x-2">
+                  <button
+                    onClick={selectAll}
+                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    ☑️ All
+                  </button>
+                  <button
+                    onClick={selectNone}
+                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    ☐ None
+                  </button>
                 </div>
-
-                {/* Action Buttons */}
-                {selectedTuples.size > 0 && (
-                  <div className="flex space-x-2">
-                    <ButtonWithShortcut
-                      onClick={bulkApprove}
-                      disabled={loading}
-                      variant="default"
-                      shortcut={['A']}
-                    >
-                      Approve
-                    </ButtonWithShortcut>
-                    <ButtonWithShortcut
-                      onClick={bulkReject}
-                      disabled={loading}
-                      variant="destructive"
-                      shortcut={['R']}
-                    >
-                      Reject
-                    </ButtonWithShortcut>
-                  </div>
-                )}
+                
+                <span className="text-sm text-gray-600">
+                  {selectedTuples.size === 0 
+                    ? 'No tuples selected' 
+                    : `${selectedTuples.size} selected`
+                  }
+                </span>
               </div>
-            </CardContent>
-          </Card>
+
+              {/* Action Buttons */}
+              {selectedTuples.size > 0 && (
+                <div className="flex space-x-2">
+                  <button
+                    onClick={bulkApprove}
+                    disabled={loading}
+                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    ✅ Approve
+                  </button>
+                  <button
+                    onClick={bulkReject}
+                    disabled={loading}
+                    className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    ❌ Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Tuple List */}
         <div className="space-y-3">
           {tuples.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-gray-500">
               No {stage} tuples found
             </div>
           ) : (
@@ -235,24 +199,24 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => toggleTupleSelection(index)}
-                        className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         onClick={(e) => e.stopPropagation()}
                       />
                     )}
                     
                     {/* Tuple Number */}
-                    <Badge variant="secondary" className="font-medium">
+                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium text-sm">
                       #{index + 1}
-                    </Badge>
+                    </span>
                     
                     {/* Tuple Values */}
                     <div className="flex flex-wrap gap-3 flex-1">
                       {Object.entries(tuple.values).map(([key, value]) => (
                         <div key={key} className="flex items-center space-x-1">
-                          <span className="text-muted-foreground text-sm">{key}:</span>
-                          <Badge variant="outline" className="font-medium">
+                          <span className="text-gray-600 text-sm">{key}:</span>
+                          <span className="bg-white px-2 py-1 rounded border text-gray-900 font-medium text-sm">
                             {value}
-                          </Badge>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -260,34 +224,26 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
                     {/* Individual Actions - Only for Generated */}
                     {stage === 'generated' && !isSelected && (
                       <div className="flex space-x-2">
-                        <ButtonWithShortcut
+                        <button
                           onClick={(e) => {
                             e.stopPropagation()
                             setSelectedTuples(new Set([index]))
                             bulkApprove()
                           }}
-                          variant="secondary"
-                          size="sm"
-                          className="text-sm"
-                          shortcut={['A']}
-                          showShortcut={false}
+                          className="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 transition-colors"
                         >
-                          Approve
-                        </ButtonWithShortcut>
-                        <ButtonWithShortcut
+                          ✅ Approve
+                        </button>
+                        <button
                           onClick={(e) => {
                             e.stopPropagation()
                             setSelectedTuples(new Set([index]))
                             bulkReject()
                           }}
-                          variant="outline"
-                          size="sm"
-                          className="text-sm text-destructive hover:text-destructive"
-                          shortcut={['R']}
-                          showShortcut={false}
+                          className="text-sm bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 transition-colors"
                         >
-                          Reject
-                        </ButtonWithShortcut>
+                          ❌ Reject
+                        </button>
                       </div>
                     )}
                   </div>

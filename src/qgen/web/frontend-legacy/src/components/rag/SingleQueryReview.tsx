@@ -1,8 +1,5 @@
-import React, { useState, useCallback } from 'react'
-import { Edit, FileText, Link } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useNotification } from '../shared/Notification'
-import { ButtonWithShortcut } from '../ui/button-with-shortcut'
-import { useKeyboardShortcuts } from '../../hooks/use-keyboard-shortcuts'
 
 interface HighlightedChunk {
   chunk_id: string
@@ -41,7 +38,7 @@ interface ReviewState {
 
 export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   queries,
-  projectName: _projectName,
+  projectName,
   onComplete,
   onCancel
 }) => {
@@ -76,7 +73,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       ...prev,
       [currentQuery.query_id]: { action: 'approved' }
     }))
-    showNotification('Query approved!', 'success')
+    showNotification('Query approved! ✅', 'success')
     goToNext()
   }, [currentQuery, goToNext, showNotification])
 
@@ -85,7 +82,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       ...prev,
       [currentQuery.query_id]: { action: 'rejected' }
     }))
-    showNotification('Query rejected', 'info')
+    showNotification('Query rejected ❌', 'info')
     goToNext()
   }, [currentQuery, goToNext, showNotification])
 
@@ -94,7 +91,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       ...prev,
       [currentQuery.query_id]: { action: 'skipped' }
     }))
-    showNotification('Query skipped', 'info')
+    showNotification('Query skipped ⏩', 'info')
     goToNext()
   }, [currentQuery, goToNext, showNotification])
 
@@ -117,7 +114,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       }
     }))
     setIsEditing(false)
-    showNotification('Query edited and approved!', 'success')
+    showNotification('Query edited and approved! ✏️✅', 'success')
     goToNext()
   }, [currentQuery, editForm, goToNext, showNotification])
 
@@ -139,58 +136,51 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   }, [reviewState, onComplete, onCancel])
 
   // Keyboard shortcuts
-  useKeyboardShortcuts({
-    shortcuts: [
-      {
-        keys: ['A'],
-        handler: () => handleApprove(),
-        description: 'Approve query',
-        enabled: !isEditing
-      },
-      {
-        keys: ['R'],
-        handler: () => handleReject(),
-        description: 'Reject query',
-        enabled: !isEditing
-      },
-      {
-        keys: ['E'],
-        handler: () => handleEdit(),
-        description: 'Edit query',
-        enabled: !isEditing
-      },
-      {
-        keys: ['S'],
-        handler: () => handleSkip(),
-        description: 'Skip query',
-        enabled: !isEditing
-      },
-      {
-        keys: ['⌘', 'S'],
-        handler: () => isEditing ? handleSaveEdit() : undefined,
-        description: 'Save edit',
-        enabled: isEditing
-      },
-      {
-        keys: ['Esc'],
-        handler: () => isEditing ? handleCancelEdit() : handleQuit(),
-        description: isEditing ? 'Cancel edit' : 'Quit review'
-      },
-      {
-        keys: ['←'],
-        handler: () => goToPrevious(),
-        description: 'Previous query',
-        enabled: !isEditing
-      },
-      {
-        keys: ['→'],
-        handler: () => goToNext(),
-        description: 'Next query',
-        enabled: !isEditing
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      // Don't handle if user is editing
+      if (isEditing || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
       }
-    ],
-    enabled: true
-  })
+
+      const key = event.key.toLowerCase()
+      
+      switch (key) {
+        case 'a':
+          event.preventDefault()
+          handleApprove()
+          break
+        case 'r':
+          event.preventDefault()
+          handleReject()
+          break
+        case 'e':
+          event.preventDefault()
+          handleEdit()
+          break
+        case 's':
+          event.preventDefault()
+          handleSkip()
+          break
+        case 'q':
+        case 'escape':
+          event.preventDefault()
+          handleQuit()
+          break
+        case 'arrowleft':
+          event.preventDefault()
+          goToPrevious()
+          break
+        case 'arrowright':
+          event.preventDefault()
+          goToNext()
+          break
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyPress)
+    return () => document.removeEventListener('keydown', handleKeyPress)
+  }, [isEditing, handleApprove, handleReject, handleEdit, handleSkip, handleQuit, goToPrevious, goToNext])
 
   if (!currentQuery) {
     return null
@@ -199,11 +189,11 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   const getDifficultyColor = (difficulty?: string) => {
     switch (difficulty) {
       case 'multi-hop':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
+        return 'bg-purple-100 text-purple-800'
       case 'adversarial':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+        return 'bg-red-100 text-red-800'
       default:
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+        return 'bg-green-100 text-green-800'
     }
   }
 
@@ -211,10 +201,10 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
     if (!currentReview) return null
     
     const colors = {
-      approved: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
-      rejected: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
-      edited: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300',
-      skipped: 'bg-muted text-muted-foreground'
+      approved: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+      edited: 'bg-yellow-100 text-yellow-800',
+      skipped: 'bg-gray-100 text-gray-800'
     }
     
     return (
@@ -225,11 +215,11 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-lg shadow-2xl w-full max-w-6xl h-full max-h-[90vh] flex flex-col border">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl h-full max-h-[90vh] flex flex-col">
         
         {/* Compact Header */}
-        <div className="bg-primary text-primary-foreground p-4 rounded-t-lg">
+        <div className="bg-blue-600 text-white p-4 rounded-t-lg">
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-lg font-semibold">Query Review</h2>
             <div className="flex items-center space-x-3">
@@ -237,18 +227,18 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
               {getReviewStatusIndicator()}
               <button 
                 onClick={handleQuit}
-                className="text-primary-foreground hover:text-primary-foreground/80 text-lg leading-none"
+                className="text-white hover:text-gray-200 text-lg leading-none"
                 title="Quit (Q)"
               >
-                ×
+                ✕
               </button>
             </div>
           </div>
           
           {/* Compact Progress Bar */}
-          <div className="w-full bg-primary/20 rounded-full h-2">
+          <div className="w-full bg-blue-500 rounded-full h-2">
             <div 
-              className="bg-primary-foreground h-2 rounded-full transition-all duration-300" 
+              className="bg-white h-2 rounded-full transition-all duration-300" 
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -266,28 +256,25 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
           
           {/* Query Details Panel */}
           {isEditing ? (
-            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg dark:bg-yellow-900/20 dark:border-yellow-600">
-              <h3 className="font-semibold text-yellow-800 dark:text-yellow-300 mb-4 flex items-center gap-2">
-                <Edit className="h-4 w-4" />
-                Editing Query
-              </h3>
+            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg">
+              <h3 className="font-semibold text-yellow-800 mb-4">✏️ Editing Query</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Query Text</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Query Text</label>
                   <textarea
                     value={editForm.query_text || ''}
                     onChange={(e) => setEditForm(prev => ({ ...prev, query_text: e.target.value }))}
-                    className="w-full p-3 border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-ring bg-background text-foreground"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     rows={3}
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Answer Fact</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Answer Fact</label>
                   <textarea
                     value={editForm.answer_fact || ''}
                     onChange={(e) => setEditForm(prev => ({ ...prev, answer_fact: e.target.value }))}
-                    className="w-full p-3 border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-ring bg-background text-foreground"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     rows={2}
                   />
                 </div>
@@ -295,11 +282,11 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {currentQuery.difficulty && (
                     <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">Difficulty</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Difficulty</label>
                       <select
                         value={editForm.difficulty || ''}
                         onChange={(e) => setEditForm(prev => ({ ...prev, difficulty: e.target.value }))}
-                        className="w-full p-2 border border-border rounded focus:ring-2 focus:ring-ring bg-background text-foreground"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="standard">Standard</option>
                         <option value="adversarial">Adversarial</option>
@@ -310,7 +297,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                   
                   {currentQuery.realism_rating && (
                     <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">Realism Score (1-5)</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Realism Score (1-5)</label>
                       <input
                         type="number"
                         min="1"
@@ -318,48 +305,45 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                         step="0.1"
                         value={editForm.realism_rating || ''}
                         onChange={(e) => setEditForm(prev => ({ ...prev, realism_rating: parseFloat(e.target.value) }))}
-                        className="w-full p-2 border border-border rounded focus:ring-2 focus:ring-ring bg-background text-foreground"
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   )}
                 </div>
                 
                 <div className="flex space-x-3 pt-4">
-                  <ButtonWithShortcut
+                  <button
                     onClick={handleSaveEdit}
-                    shortcut="save"
-                    className="bg-green-600 text-white hover:bg-green-700 px-6"
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700"
                   >
-                    Save & Approve
-                  </ButtonWithShortcut>
-                  <ButtonWithShortcut
+                    ✅ Save & Approve
+                  </button>
+                  <button
                     onClick={handleCancelEdit}
-                    shortcut="cancel"
-                    variant="outline"
-                    className="px-6"
+                    className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700"
                   >
                     Cancel
-                  </ButtonWithShortcut>
+                  </button>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="bg-gradient-to-r from-primary/10 to-primary/5 border-l-4 border-primary p-4 rounded-lg">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-4 rounded-lg">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
-                  <h3 className="font-semibold text-foreground mb-3">Query</h3>
-                  <p className="text-foreground text-lg leading-relaxed">{currentQuery.query_text}</p>
+                  <h3 className="font-semibold text-gray-800 mb-3">Query</h3>
+                  <p className="text-gray-700 text-lg leading-relaxed">{currentQuery.query_text}</p>
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <span className="text-sm font-medium text-muted-foreground">Answer Fact:</span>
-                    <p className="text-foreground mt-1">{currentQuery.answer_fact}</p>
+                    <span className="text-sm font-medium text-gray-600">Answer Fact:</span>
+                    <p className="text-gray-800 mt-1">{currentQuery.answer_fact}</p>
                   </div>
                   
                   <div className="flex flex-wrap gap-4">
                     {currentQuery.difficulty && (
                       <div>
-                        <span className="text-sm font-medium text-muted-foreground">Difficulty:</span>
+                        <span className="text-sm font-medium text-gray-600">Difficulty:</span>
                         <span className={`ml-2 px-3 py-1 rounded text-xs font-medium ${getDifficultyColor(currentQuery.difficulty)}`}>
                           {currentQuery.difficulty}
                         </span>
@@ -368,13 +352,13 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                     
                     {currentQuery.realism_rating && (
                       <div>
-                        <span className="text-sm font-medium text-muted-foreground">Realism Score:</span>
-                        <span className="ml-2 font-semibold text-primary">{currentQuery.realism_rating}/5</span>
+                        <span className="text-sm font-medium text-gray-600">Realism Score:</span>
+                        <span className="ml-2 font-semibold text-blue-600">{currentQuery.realism_rating}/5</span>
                       </div>
                     )}
                   </div>
                   
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-xs text-gray-500">
                     Query ID: {currentQuery.query_id.slice(0, 12)}...
                   </div>
                 </div>
@@ -385,11 +369,10 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
           {/* Source Chunks with Highlighting */}
           {currentQuery.highlighted_chunks && currentQuery.highlighted_chunks.length > 0 && (
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Source Context
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                📄 Source Context
                 {currentQuery.highlighted_chunks.length > 1 && (
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                  <span className="text-sm font-normal text-gray-500 ml-2">
                     ({currentQuery.highlighted_chunks.length} chunks)
                   </span>
                 )}
@@ -397,25 +380,25 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
               
               <div className="space-y-4">
                 {currentQuery.highlighted_chunks.map((chunk, idx) => (
-                  <div key={chunk.chunk_id} className="border border-border rounded-lg overflow-hidden shadow-sm">
-                    <div className="bg-muted px-4 py-3 border-b border-border flex justify-between items-center">
+                  <div key={chunk.chunk_id} className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                    <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
                       <div className="flex items-center space-x-3">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="text-sm font-medium text-gray-700">
                           {chunk.source_document}
                         </span>
                         {currentQuery.highlighted_chunks!.length > 1 && (
-                          <span className="bg-primary/20 text-primary px-2 py-1 rounded-full text-xs font-medium">
+                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
                             Chunk {idx + 1}
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-gray-500">
                         Highlighting: {chunk.highlight_source.replace('_', ' ')}
                       </span>
                     </div>
                     <div className="p-4">
                       <div 
-                        className="text-foreground leading-relaxed"
+                        className="text-gray-700 leading-relaxed"
                         dangerouslySetInnerHTML={{ __html: chunk.highlighted_html }}
                       />
                     </div>
@@ -425,12 +408,12 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
 
               {/* Multi-hop Indicator */}
               {currentQuery.highlighted_chunks.length > 1 && (
-                <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 dark:bg-purple-900/20 dark:border-purple-600">
+                <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
                   <div className="flex items-center space-x-2">
-                    <Link className="h-4 w-4 text-purple-600" />
-                    <span className="text-purple-800 dark:text-purple-300 font-medium">Multi-hop Query</span>
+                    <span className="text-purple-600 text-lg">🔗</span>
+                    <span className="text-purple-800 font-medium">Multi-hop Query</span>
                   </div>
-                  <p className="text-purple-700 dark:text-purple-400 text-sm mt-2">
+                  <p className="text-purple-700 text-sm mt-2">
                     This query requires information from {currentQuery.highlighted_chunks.length} different chunks to be answered completely.
                   </p>
                 </div>
@@ -440,70 +423,59 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
         </div>
 
         {/* Compact Action Bar */}
-        <div className="bg-muted border-t border-border p-3">
+        <div className="bg-gray-50 border-t p-3">
           <div className="flex justify-between items-center">
             
             {/* Navigation */}
             <div className="flex items-center space-x-2">
-              <ButtonWithShortcut
+              <button
                 onClick={goToPrevious}
                 disabled={currentIndex === 0}
-                shortcut="previous"
-                variant="outline"
-                size="sm"
-                className="disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
               >
-                Previous
-              </ButtonWithShortcut>
-              <span className="text-sm text-muted-foreground px-2">
+                ← Previous
+              </button>
+              <span className="text-sm text-gray-600 px-2">
                 {currentIndex + 1} of {queries.length}
               </span>
-              <ButtonWithShortcut
+              <button
                 onClick={goToNext}
                 disabled={currentIndex === queries.length - 1}
-                shortcut="next"
-                variant="outline" 
-                size="sm"
-                className="disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
               >
-                Next
-              </ButtonWithShortcut>
+                Next →
+              </button>
             </div>
 
             {/* Compact Action Buttons */}
             <div className="flex items-center space-x-2">
-              <ButtonWithShortcut 
+              <button 
                 onClick={handleApprove}
-                shortcut="approve"
-                className="bg-green-600 text-white hover:bg-green-700"
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
               >
-                Approve
-              </ButtonWithShortcut>
+                [A]pprove
+              </button>
               
-              <ButtonWithShortcut 
+              <button 
                 onClick={handleReject}
-                shortcut="reject"
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
               >
-                Reject
-              </ButtonWithShortcut>
+                [R]eject
+              </button>
               
-              <ButtonWithShortcut 
+              <button 
                 onClick={handleEdit}
-                shortcut="edit"
-                className="bg-yellow-600 text-white hover:bg-yellow-700"
+                className="bg-yellow-600 text-white px-3 py-2 rounded hover:bg-yellow-700 transition-colors"
               >
-                Edit
-              </ButtonWithShortcut>
+                [E]dit
+              </button>
               
-              <ButtonWithShortcut 
+              <button 
                 onClick={handleSkip}
-                shortcut="skip"
-                variant="outline"
-                className="text-muted-foreground hover:bg-muted/80"
+                className="bg-gray-600 text-white px-3 py-2 rounded hover:bg-gray-700 transition-colors"
               >
-                Skip
-              </ButtonWithShortcut>
+                [S]kip
+              </button>
             </div>
           </div>
         </div>

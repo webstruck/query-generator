@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { type RAGProject } from '../ProjectSelector'
 import { useNotification } from '../shared/Notification'
-import Highlighter from 'react-highlight-words'
 import { SingleQueryReview } from './SingleQueryReview'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
+import { Progress } from '@/components/ui/progress'
+import { LayoutDashboard, Database, Lightbulb, FileText, Download, Settings, AlertTriangle, File, Search, Rocket, Upload } from 'lucide-react'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface RAGProjectDashboardProps {
   project: RAGProject
@@ -45,26 +50,26 @@ interface RAGQuery {
 
 type ActiveTab = 'overview' | 'chunks' | 'facts' | 'queries' | 'export'
 
-// Simple inline components for consistent design
+// Simple inline components for consistent design using shadcn
 const SimpleStatusCard: React.FC<{ title: string; count: number; subtitle: string }> = ({ title, count, subtitle }) => (
-  <div className="bg-white p-4 rounded-lg border shadow-sm">
-    <h3 className="text-sm font-medium text-gray-500">{title}</h3>
-    <p className="text-2xl font-bold text-gray-900">{count}</p>
-    <p className="text-sm text-gray-600">{subtitle}</p>
-  </div>
+  <Card>
+    <CardContent className="p-4">
+      <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+      <p className="text-2xl font-bold">{count}</p>
+      <p className="text-sm text-muted-foreground">{subtitle}</p>
+    </CardContent>
+  </Card>
 )
 
 const SimpleProgressBar: React.FC<{ current: number; total: number; label: string }> = ({ current, total, label }) => {
   const percentage = total > 0 ? (current / total) * 100 : 0
   return (
-    <div className="w-full">
-      <div className="flex justify-between text-sm mb-1">
-        <span>{label}</span>
-        <span>{current}/{total}</span>
+    <div className="w-full space-y-2">
+      <div className="flex justify-between text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{current}/{total}</span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${percentage}%` }}></div>
-      </div>
+      <Progress value={percentage} className="h-2" />
     </div>
   )
 }
@@ -89,19 +94,19 @@ const SimpleFileUpload: React.FC<{ onFileUpload: (files: FileList) => void; acce
   return (
     <div
       className={`border-2 border-dashed rounded-lg p-6 text-center ${
-        isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+        isDragging ? 'border-primary bg-primary/10' : 'border-border'
       }`}
       onDragOver={(e) => e.preventDefault()}
       onDragEnter={() => setIsDragging(true)}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
-      <p className="text-gray-600 mb-2">{description}</p>
+      <p className="text-muted-foreground mb-2">{description}</p>
       <input
         type="file"
         accept={acceptedTypes}
         onChange={handleFileSelect}
-        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+        className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
       />
     </div>
   )
@@ -122,10 +127,93 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const [facts, setFacts] = useState<{ [stage: string]: Fact[] }>({})
   const [queries, setQueries] = useState<{ [stage: string]: RAGQuery[] }>({})
   const [selectedFacts, setSelectedFacts] = useState<Set<string>>(new Set())
-  const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set())
   const [factStage, setFactStage] = useState<'generated' | 'approved'>('generated')
   const [isQueryReviewOpen, setIsQueryReviewOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Helper functions and getters
+  const getChunksCount = () => chunkFiles.reduce((sum, file) => sum + file.chunks_count, 0)
+  const getGeneratedFactsCount = () => facts.generated?.length || 0
+  const getApprovedFactsCount = () => facts.approved?.length || 0
+  const getGeneratedQueriesCount = () => (queries.generated?.length || 0) + (queries.multihop?.length || 0)
+  const getApprovedQueriesCount = () => queries.approved?.length || 0
+
+  // Helper functions for keyboard shortcuts
+  const extractFacts = () => handleExtractFacts()
+  const generateQueries = () => handleGenerateQueries(false)
+  const generateQueriesOfType = (type: 'standard' | 'multihop') => handleGenerateQueries(type === 'multihop')
+  const startQueryReview = () => handleStartSingleQueryReview()
+  const exportQueries = (format: 'json' | 'csv') => handleExport(format)
+  const selectAllFacts = () => {
+    const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
+    const allFactIds = new Set(currentFacts?.map(fact => fact.fact_id) || [])
+    setSelectedFacts(allFactIds)
+  }
+  const selectNoneFacts = () => setSelectedFacts(new Set())
+  const bulkApproveFacts = () => handleApproveFacts()
+
+  const handleIndividualApprove = async (factId: string) => {
+    try {
+      const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_ids: [factId] })
+      })
+
+      const result = await response.json()
+      
+      if (response.ok) {
+        showNotification('Fact approved successfully!', 'success')
+        loadProjectData()
+      } else {
+        showNotification(result.detail || 'Failed to approve fact', 'error')
+      }
+    } catch (error) {
+      console.error('Individual approve error:', error)
+      showNotification('Failed to approve fact', 'error')
+    }
+  }
+
+  const handleIndividualReject = async (factId: string) => {
+    // For now, just remove from selection
+    const newSelected = new Set(selectedFacts)
+    newSelected.delete(factId)
+    setSelectedFacts(newSelected)
+    showNotification('Fact rejected', 'info')
+  }
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Tab navigation
+      { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
+      { keys: ['2'], handler: () => setActiveTab('chunks'), description: 'Chunks tab' },
+      { keys: ['3'], handler: () => setActiveTab('facts'), description: 'Facts tab' },
+      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
+      
+      // Main workflow actions
+      { keys: ['U'], handler: () => setActiveTab('chunks'), description: 'Upload chunks', enabled: activeTab === 'overview' },
+      { keys: ['F'], handler: extractFacts, description: 'Extract facts', enabled: getChunksCount() > 0 },
+      { keys: ['G'], handler: generateQueries, description: 'Generate queries', enabled: getApprovedFactsCount() > 0 },
+      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: getApprovedQueriesCount() > 0 },
+      
+      // Facts review (when on facts tab)
+      { keys: ['⌘', 'A'], handler: selectAllFacts, description: 'Select all facts', enabled: activeTab === 'facts' && getGeneratedFactsCount() > 0 },
+      { keys: ['⌘', 'D'], handler: selectNoneFacts, description: 'Select none', enabled: activeTab === 'facts' },
+      { keys: ['A'], handler: bulkApproveFacts, description: 'Approve selected facts', enabled: activeTab === 'facts' && selectedFacts.size > 0 },
+      
+      // Query generation (when on queries tab)
+      { keys: ['S'], handler: () => generateQueriesOfType('standard'), description: 'Generate standard queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
+      { keys: ['M'], handler: () => generateQueriesOfType('multihop'), description: 'Generate multi-hop queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
+      { keys: ['↵'], handler: startQueryReview, description: 'Start query review', enabled: getGeneratedQueriesCount() > 0 },
+      
+      // Export (when on export tab)
+      { keys: ['⌘', 'J'], handler: () => exportQueries('json'), description: 'Export JSON', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 },
+      { keys: ['⌘', 'C'], handler: () => exportQueries('csv'), description: 'Export CSV', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 }
+    ],
+    enabled: true
+  })
 
   useEffect(() => {
     loadProjectData()
@@ -187,7 +275,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
           multihop: multihopQueries.queries || []
         }
         
-        console.log(`📊 Loaded queries - Generated: ${newQueries.generated.length}, Approved: ${newQueries.approved.length}, Multihop: ${newQueries.multihop.length}`)
+        console.log(`Loaded queries - Generated: ${newQueries.generated.length}, Approved: ${newQueries.approved.length}, Multihop: ${newQueries.multihop.length}`)
         setQueries(newQueries)
       } catch (e) {
         console.warn('Could not load queries:', e)
@@ -207,12 +295,12 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         setOperationStatus(status)
         
         if (status.completed) {
-          console.log(`✅ Operation ${operation} completed, refreshing data...`)
+          console.log(`Operation ${operation} completed, refreshing data...`)
           showNotification(status.message, 'success')
           setOperationStatus(null)
           await loadProjectData() // Refresh data and wait for completion
           setRefreshKey(prev => prev + 1) // Force re-render
-          console.log(`🔄 Data refresh completed for ${operation}`)
+          console.log(`Data refresh completed for ${operation}`)
           return true
         }
         return false
@@ -300,7 +388,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       }
     } catch (error) {
       console.error('Extract facts error:', error)
-      showNotification(`Failed to start fact extraction: ${error.message}`, 'error')
+      showNotification(`Failed to start fact extraction: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     }
   }
 
@@ -362,34 +450,6 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
     }
   }
 
-  const handleApproveQueries = async () => {
-    if (selectedQueries.size === 0) {
-      showNotification('Please select queries to approve', 'error')
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/rag-projects/${project.name}/queries/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_ids: Array.from(selectedQueries) })
-      })
-
-      const result = await response.json()
-      
-      if (response.ok) {
-        showNotification(result.message, 'success')
-        setSelectedQueries(new Set())
-        loadProjectData()
-      } else {
-        showNotification(result.detail || 'Failed to approve queries', 'error')
-      }
-    } catch (error) {
-      console.error('Approve queries error:', error)
-      showNotification('Failed to approve queries', 'error')
-    }
-  }
-
   const handleStartSingleQueryReview = () => {
     setIsQueryReviewOpen(true)
   }
@@ -406,7 +466,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         const result = await response.json()
         
         if (response.ok) {
-          showNotification(`${result.message} ✅`, 'success')
+          showNotification(result.message, 'success')
           loadProjectData()
         } else {
           showNotification(result.detail || 'Failed to approve queries', 'error')
@@ -439,16 +499,13 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
     }
   }
 
-  const getChunksCount = () => chunkFiles.reduce((sum, file) => sum + file.chunks_count, 0)
-  const getGeneratedFactsCount = () => facts.generated?.length || 0
-  const getApprovedFactsCount = () => facts.approved?.length || 0
-  const getGeneratedQueriesCount = () => (queries.generated?.length || 0) + (queries.multihop?.length || 0)
-  const getApprovedQueriesCount = () => queries.approved?.length || 0
-
   const renderChunksStage = () => (
-    <div className="bg-white rounded-lg shadow p-6">
+    <Card className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-lg font-semibold text-gray-900">📄 Upload Chunks</h3>
+        <h3 className="text-lg font-semibold text-foreground flex items-center">
+          <Upload className="h-4 w-4 mr-2" />
+          Upload Chunks
+        </h3>
         <SimpleStatusCard
           title="Total Chunks"
           count={getChunksCount()}
@@ -458,7 +515,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <h4 className="text-md font-medium text-gray-900 mb-4">Upload JSONL Files</h4>
+          <h4 className="text-md font-medium text-foreground mb-4">Upload JSONL Files</h4>
           <SimpleFileUpload
             onFileUpload={handleFileUpload}
             acceptedTypes=".jsonl"
@@ -467,22 +524,25 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         </div>
 
         <div>
-          <h4 className="text-md font-medium text-gray-900 mb-4">Uploaded Files</h4>
+          <h4 className="text-md font-medium text-foreground mb-4">Uploaded Files</h4>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {chunkFiles.length === 0 ? (
-              <p className="text-gray-500 italic">No files uploaded yet</p>
+              <p className="text-muted-foreground italic">No files uploaded yet</p>
             ) : (
               chunkFiles.map((file, index) => (
-                <div key={index} className="bg-gray-50 p-3 rounded border">
+                <div key={index} className="bg-muted p-3 rounded border-border border">
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="font-medium">{file.filename}</p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-muted-foreground">
                         {file.chunks_count} chunks • {(file.file_size / 1024).toFixed(1)} KB
                       </p>
                     </div>
                     {file.error && (
-                      <span className="text-red-500 text-sm">⚠️ {file.error}</span>
+                      <span className="text-destructive text-sm flex items-center">
+                        <AlertTriangle className="h-4 w-4 mr-1" />
+                        {file.error}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -491,61 +551,25 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
 
   const renderFactsStage = () => {
     const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
-    
-    const selectAllFacts = () => {
-      const allFactIds = new Set(currentFacts.map(fact => fact.fact_id))
-      setSelectedFacts(allFactIds)
-    }
-
-    const selectNoneFacts = () => {
-      setSelectedFacts(new Set())
-    }
-
-    const handleIndividualApprove = async (factId: string) => {
-      try {
-        const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_ids: [factId] })
-        })
-
-        const result = await response.json()
-        
-        if (response.ok) {
-          showNotification('Fact approved successfully! ✅', 'success')
-          loadProjectData()
-        } else {
-          showNotification(result.detail || 'Failed to approve fact', 'error')
-        }
-      } catch (error) {
-        console.error('Individual approve error:', error)
-        showNotification('Failed to approve fact', 'error')
-      }
-    }
-
-    const handleIndividualReject = async (factId: string) => {
-      // For now, just remove from selection
-      const newSelected = new Set(selectedFacts)
-      newSelected.delete(factId)
-      setSelectedFacts(newSelected)
-      showNotification('Fact rejected', 'info')
-    }
 
 
     return (
       <div className="space-y-6">
         {/* Header with Stage Selection */}
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-semibold text-gray-900">🔍 Fact Review</h3>
+          <h3 className="text-lg font-semibold text-foreground flex items-center">
+            <Search className="h-4 w-4 mr-2" />
+            Fact Review
+          </h3>
           <select
             value={factStage}
             onChange={(e) => setFactStage(e.target.value as 'generated' | 'approved')}
-            className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-border rounded focus:outline-none focus:ring-2 focus:ring-ring bg-background text-foreground"
           >
             <option value="generated">Generated Facts</option>
             <option value="approved">Approved Facts</option>
@@ -553,46 +577,52 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         </div>
 
         {currentFacts.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-6">
+          <Card className="p-6">
             <div className="text-center py-8">
-              <p className="text-gray-500 mb-4">
+              <p className="text-muted-foreground mb-4">
                 {factStage === 'generated' ? 'No facts generated yet' : 'No facts approved yet'}
               </p>
               {factStage === 'generated' && (
-                <button
+                <ButtonWithShortcut
                   onClick={handleExtractFacts}
                   disabled={getChunksCount() === 0 || !provider || !!operationStatus}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  shortcut={['F']}
                 >
-                  🔍 Extract Facts
-                </button>
+                  Extract Facts
+                </ButtonWithShortcut>
               )}
             </div>
-          </div>
+          </Card>
         ) : (
           <>
             {/* Floating Action Bar - Only for Generated */}
             {factStage === 'generated' && (
-              <div className="bg-white rounded-lg shadow-sm border p-4 mb-6 sticky top-4 z-10">
+              <Card className="p-4 mb-6 sticky top-4 z-10">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   {/* Selection Controls */}
                   <div className="flex items-center space-x-4">
                     <div className="flex space-x-2">
-                      <button
+                      <ButtonWithShortcut
                         onClick={selectAllFacts}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                        className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
+                        variant="outline"
+                        size="sm"
+                        shortcut={['⌘', 'A']}
                       >
-                        ☑️ All
-                      </button>
-                      <button
+                        All
+                      </ButtonWithShortcut>
+                      <ButtonWithShortcut
                         onClick={selectNoneFacts}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                        className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
+                        variant="outline"
+                        size="sm"
+                        shortcut={['⌘', 'D']}
                       >
-                        ☐ None
-                      </button>
+                        None
+                      </ButtonWithShortcut>
                     </div>
                     
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground">
                       {selectedFacts.size === 0 
                         ? 'No facts selected' 
                         : `${selectedFacts.size} selected`
@@ -603,17 +633,18 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   {/* Action Buttons */}
                   {selectedFacts.size > 0 && (
                     <div className="flex space-x-2">
-                      <button
+                      <ButtonWithShortcut
                         onClick={handleApproveFacts}
                         disabled={_loading}
-                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+                        variant="default"
+                        shortcut={['A']}
                       >
-                        ✅ Approve Selected
-                      </button>
+                        Approve Selected
+                      </ButtonWithShortcut>
                     </div>
                   )}
                 </div>
-              </div>
+              </Card>
             )}
 
             {/* Facts List with Simple Highlighting */}
@@ -625,10 +656,10 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   const baseClasses = "p-4 rounded-lg border-2 mb-3 transition-all cursor-pointer"
                   
                   if (isSelected) {
-                    return `${baseClasses} border-blue-500 bg-blue-50 shadow-md`
+                    return `${baseClasses} border-primary bg-primary/10 shadow-md`
                   }
                   
-                  return `${baseClasses} border-gray-200 bg-gray-50 hover:border-gray-300 hover:shadow-sm`
+                  return `${baseClasses} border-border bg-muted hover:border-muted-foreground hover:shadow-sm`
                 }
                 
                 return (
@@ -660,26 +691,26 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                             }
                             return newSelected
                           })}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+                          className="h-4 w-4 text-primary focus:ring-ring border-border rounded mt-1"
                           onClick={(e) => e.stopPropagation()}
                         />
                       )}
                       
                       {/* Fact Number */}
-                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium text-sm">
+                      <span className="bg-primary/20 text-primary px-2 py-1 rounded font-medium text-sm">
                         #{index + 1}
                       </span>
                       
                       {/* Fact Content */}
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900 mb-2">{fact.fact_text}</p>
+                        <p className="text-sm font-medium text-foreground mb-2">{fact.fact_text}</p>
                         
                         {/* Source Context with Model2Vec-based Highlighting */}
                         {fact.source_text && (
-                          <div className="mt-2 p-3 bg-gray-50 rounded border">
-                            <p className="text-xs text-gray-500 mb-1">Source Context (Model2Vec similarity):</p>
+                          <div className="mt-2 p-3 bg-muted rounded border border-border">
+                            <p className="text-xs text-muted-foreground mb-1">Source Context (Model2Vec similarity):</p>
                             <div 
-                              className="text-sm text-gray-700"
+                              className="text-sm text-foreground"
                               dangerouslySetInnerHTML={{ 
                                 __html: fact.highlighted_source || fact.source_text 
                               }}
@@ -687,7 +718,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                           </div>
                         )}
                         
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-muted-foreground mt-2">
                           Chunk: {fact.chunk_id} • Confidence: {(fact.extraction_confidence * 100).toFixed(1)}%
                         </p>
                       </div>
@@ -695,24 +726,29 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                       {/* Individual Actions - Only for Generated */}
                       {factStage === 'generated' && (
                         <div className="flex space-x-2">
-                          <button
+                          <ButtonWithShortcut
                             onClick={(e) => {
                               e.stopPropagation()
                               handleIndividualApprove(fact.fact_id)
                             }}
-                            className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors"
+                            size="sm"
+                            variant="default"
+                            className="bg-green-600 hover:bg-green-700"
+                            shortcut={['A']}
                           >
-                            ✅ Approve
-                          </button>
-                          <button
+                            Approve
+                          </ButtonWithShortcut>
+                          <ButtonWithShortcut
                             onClick={(e) => {
                               e.stopPropagation()
                               handleIndividualReject(fact.fact_id)
                             }}
-                            className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors"
+                            size="sm"
+                            variant="destructive"
+                            shortcut={['R']}
                           >
-                            ❌ Reject
-                          </button>
+                            Reject
+                          </ButtonWithShortcut>
                         </div>
                       )}
                     </div>
@@ -729,31 +765,31 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const renderQueriesStage = () => (
     <div className="space-y-6">
       {!facts.approved || facts.approved.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-6">
+        <Card className="p-6">
           <div className="text-center py-8">
-            <p className="text-gray-500 mb-4">No approved facts yet</p>
-            <button
+            <p className="text-muted-foreground mb-4">No approved facts yet</p>
+            <Button
               onClick={() => setActiveTab('facts')}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
             >
               ← Approve Facts First
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       ) : (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h4 className="text-md font-medium text-gray-900 mb-4">Standard Queries</h4>
+            <Card className="p-6">
+              <h4 className="text-md font-medium text-foreground mb-4">Standard Queries</h4>
               <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-3">Using provider: <span className="font-medium text-blue-600">{provider || 'None selected'}</span></p>
-                <button
+                <p className="text-sm text-muted-foreground mb-3">Using provider: <span className="font-medium text-primary">{provider || 'None selected'}</span></p>
+                <ButtonWithShortcut
                   onClick={() => handleGenerateQueries(false)}
                   disabled={!provider || !!operationStatus}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
+                  className="bg-green-600 hover:bg-green-700"
+                  shortcut={['S']}
                 >
                   Generate Standard Queries
-                </button>
+                </ButtonWithShortcut>
               </div>
               
               {operationStatus?.operation === 'generate_queries' && (
@@ -763,19 +799,20 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   label={operationStatus.message}
                 />
               )}
-            </div>
+            </Card>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <h4 className="text-md font-medium text-gray-900 mb-4">Multi-hop Queries</h4>
+            <Card className="p-6">
+              <h4 className="text-md font-medium text-foreground mb-4">Multi-hop Queries</h4>
               <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-3">Using provider: <span className="font-medium text-blue-600">{provider || 'None selected'}</span></p>
-                <button
+                <p className="text-sm text-muted-foreground mb-3">Using provider: <span className="font-medium text-primary">{provider || 'None selected'}</span></p>
+                <ButtonWithShortcut
                   onClick={() => handleGenerateQueries(true)}
                   disabled={!provider || !!operationStatus}
-                  className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
+                  className="bg-purple-600 hover:bg-purple-700"
+                  shortcut={['M']}
                 >
                   Generate Multi-hop Queries
-                </button>
+                </ButtonWithShortcut>
               </div>
               
               {operationStatus?.operation === 'generate_multihop' && (
@@ -785,29 +822,32 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   label={operationStatus.message}
                 />
               )}
-            </div>
+            </Card>
           </div>
 
           {/* Query Review Interface */}
           {((queries.generated && queries.generated.length > 0) || (queries.multihop && queries.multihop.length > 0)) && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <Card className="p-6">
               <div className="text-center">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">
-                  📝 Query Review Ready
+                <h4 className="text-lg font-medium text-foreground mb-4">
+                <div className="flex items-center justify-center">
+                  <FileText className="h-5 w-5 mr-2" />
+                  Query Review Ready
+                </div>
                 </h4>
                 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div>
-                      <span className="font-medium text-blue-800">Standard Queries:</span>
-                      <div className="text-2xl font-bold text-blue-600">{queries.generated?.length || 0}</div>
+                      <span className="font-medium text-primary">Standard Queries:</span>
+                      <div className="text-2xl font-bold text-primary">{queries.generated?.length || 0}</div>
                     </div>
                     <div>
-                      <span className="font-medium text-purple-800">Multi-hop Queries:</span>
+                      <span className="font-medium text-purple-600">Multi-hop Queries:</span>
                       <div className="text-2xl font-bold text-purple-600">{queries.multihop?.length || 0}</div>
                     </div>
                     <div>
-                      <span className="font-medium text-green-800">Total Ready:</span>
+                      <span className="font-medium text-green-600">Total Ready:</span>
                       <div className="text-2xl font-bold text-green-600">
                         {(queries.generated?.length || 0) + (queries.multihop?.length || 0)}
                       </div>
@@ -815,19 +855,21 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   </div>
                 </div>
 
-                <button
+                <ButtonWithShortcut
                   onClick={handleStartSingleQueryReview}
-                  className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 font-medium text-lg transition-colors shadow-md"
+                  className="bg-blue-600 hover:bg-blue-700 font-medium text-lg shadow-md"
+                  size="lg"
+                  shortcut="submit"
                 >
-                  🔍 Start Query Review
-                </button>
+                  Start Query Review
+                </ButtonWithShortcut>
                 
-                <div className="mt-4 text-sm text-gray-600 space-y-1">
+                <div className="mt-4 text-sm text-muted-foreground space-y-1">
                   <p>Review queries one at a time with full chunk context</p>
-                  <p>⌨️ Use keyboard shortcuts for fast review: A (approve), R (reject), E (edit), S (skip)</p>
+                  <p>Use keyboard shortcuts for fast review: A (approve), R (reject), E (edit), S (skip)</p>
                 </div>
               </div>
-            </div>
+            </Card>
           )}
         </>
       )}
@@ -835,12 +877,17 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   )
 
   const renderExportStage = () => (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">📊 Export Dataset</h3>
-      <div className="space-y-6">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="font-medium text-blue-900 mb-2">Export Summary</h4>
-          <div className="text-sm text-blue-800">
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <Download className="mr-2 h-4 w-4" />
+          Export Dataset
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+          <h4 className="font-medium text-foreground mb-2">Export Summary</h4>
+          <div className="text-sm text-muted-foreground">
             <p>• Approved Queries: {getApprovedQueriesCount()}</p>
             <p>• Total Generated: {getGeneratedQueriesCount()}</p>
             <p>• Ready for export: {getApprovedQueriesCount() > 0 ? 'Yes' : 'No approved queries yet'}</p>
@@ -849,48 +896,58 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
         
         {getApprovedQueriesCount() === 0 ? (
           <div className="text-center py-8">
-            <p className="text-gray-500 mb-4">No approved queries yet</p>
-            <button
+            <p className="text-muted-foreground mb-4">No approved queries yet</p>
+            <Button
               onClick={() => setActiveTab('queries')}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+              variant="default"
             >
               ← Approve Queries First
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h4 className="font-medium text-gray-900 mb-2">📄 JSON Format</h4>
-              <p className="text-sm text-gray-600 mb-3">
+            <Card className="p-4">
+              <h4 className="font-medium text-foreground mb-2 flex items-center">
+                <File className="h-4 w-4 mr-2" />
+                JSON Format
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
                 Structured JSON format, perfect for APIs and programmatic use.
               </p>
-              <button
+              <ButtonWithShortcut
                 onClick={() => handleExport('json')}
-                className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                className="w-full"
+                variant="default"
+                shortcut={['⌘', 'J']}
               >
                 Export JSON
-              </button>
-            </div>
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h4 className="font-medium text-gray-900 mb-2">📄 CSV Format</h4>
-              <p className="text-sm text-gray-600 mb-3">
+              </ButtonWithShortcut>
+            </Card>
+            <Card className="p-4">
+              <h4 className="font-medium text-foreground mb-2 flex items-center">
+                <File className="h-4 w-4 mr-2" />
+                CSV Format
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
                 Comma-separated values format, ideal for spreadsheets and data analysis.
               </p>
-              <button
+              <ButtonWithShortcut
                 onClick={() => handleExport('csv')}
-                className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors"
+                className="w-full"
+                variant="secondary"
+                shortcut={['⌘', 'C']}
               >
                 Export CSV
-              </button>
-            </div>
+              </ButtonWithShortcut>
+            </Card>
           </div>
         )}
         
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           Exports will be saved to the project's data/exports directory
         </p>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 
   return (
@@ -899,46 +956,46 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       
       {/* Progress Bar */}
       {operationStatus && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-white rounded-lg shadow-lg border p-6 min-w-96">
+        <Card className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 p-6 min-w-96">
           <div className="text-center mb-4">
-            <div className="text-lg font-semibold text-gray-900 mb-2">Processing...</div>
-            <div className="text-sm text-gray-600">{operationStatus.message}</div>
+            <div className="text-lg font-semibold text-foreground mb-2">Processing...</div>
+            <div className="text-sm text-muted-foreground">{operationStatus.message}</div>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+          <div className="w-full bg-muted rounded-full h-2 mb-4">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-500 ease-out"
+              className="bg-primary h-2 rounded-full transition-all duration-500 ease-out"
               style={{ width: `${operationStatus.progress}%` }}
             />
           </div>
-          <div className="text-center text-sm text-gray-500">
+          <div className="text-center text-sm text-muted-foreground">
             {Math.round(operationStatus.progress)}% complete
           </div>
-        </div>
+        </Card>
       )}
       
       <div>
         {/* Tab Navigation */}
-        <div className="border-b border-gray-200 mb-6">
+        <div className="border-b border-border mb-6">
           <nav className="-mb-px flex space-x-8">
             {[
-              { id: 'overview', name: '📋 Overview', count: null },
-              { id: 'chunks', name: '📄 Chunks', count: getChunksCount() },
-              { id: 'facts', name: '🔍 Facts', count: getGeneratedFactsCount() },
-              { id: 'queries', name: '❓ Queries', count: getGeneratedQueriesCount() },
-              { id: 'export', name: '📊 Export', count: null }
+              { id: 'overview', name: <><LayoutDashboard className="inline h-4 w-4 mr-1" />Overview</>, count: null },
+              { id: 'chunks', name: <><Database className="inline h-4 w-4 mr-1" />Chunks</>, count: getChunksCount() },
+              { id: 'facts', name: <><Lightbulb className="inline h-4 w-4 mr-1" />Facts</>, count: getGeneratedFactsCount() },
+              { id: 'queries', name: <><FileText className="inline h-4 w-4 mr-1" />Queries</>, count: getGeneratedQueriesCount() },
+              { id: 'export', name: <><Download className="inline h-4 w-4 mr-1" />Export</>, count: null }
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as ActiveTab)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground'
                 }`}
               >
                 {tab.name}
                 {tab.count !== null && (
-                  <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
+                  <span className="ml-1 bg-muted text-muted-foreground py-0.5 px-2 rounded-full text-xs">
                     {tab.count}
                   </span>
                 )}
@@ -953,28 +1010,29 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
             {/* Provider Selection and Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Provider Settings */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <Card className="p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                    <span className="mr-2">🔧</span>
+                  <h3 className="text-lg font-semibold text-foreground flex items-center">
+                    <Settings className="mr-2 h-4 w-4" />
                     LLM Provider
                   </h3>
-                  <button
+                  <Button
                     onClick={() => {
                       setRefreshKey(prev => prev + 1)
                       loadProjectData()
                     }}
-                    className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-md transition-colors"
+                    variant="outline"
+                    size="sm"
                     title="Refresh data"
                   >
-                    🔄 Refresh
-                  </button>
+                    Refresh
+                  </Button>
                 </div>
                 <div className="space-y-4">
                   <select
                     value={provider}
                     onChange={(e) => setProvider(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring bg-background text-foreground"
                   >
                     {providers.available.map((p) => (
                       <option key={p} value={p}>
@@ -983,109 +1041,115 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     Selected provider will be used for fact extraction and query generation
                   </p>
                 </div>
-              </div>
+              </Card>
 
               {/* Facts Stats */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <span className="mr-2">🔍</span>
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <Search className="h-4 w-4 mr-2" />
                   Facts
                 </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Generated</span>
-                    <span className="text-2xl font-bold text-blue-600">{getGeneratedFactsCount()}</span>
+                    <span className="text-sm text-muted-foreground">Generated</span>
+                    <span className="text-2xl font-bold text-primary">{getGeneratedFactsCount()}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Approved</span>
+                    <span className="text-sm text-muted-foreground">Approved</span>
                     <span className="text-2xl font-bold text-green-600">{getApprovedFactsCount()}</span>
                   </div>
                 </div>
-              </div>
+              </Card>
 
               {/* Queries Stats */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <span className="mr-2">❓</span>
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                  <FileText className="h-4 w-4 mr-2" />
                   Queries
                 </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Generated</span>
+                    <span className="text-sm text-muted-foreground">Generated</span>
                     <span className="text-2xl font-bold text-purple-600">{getGeneratedQueriesCount()}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Approved</span>
+                    <span className="text-sm text-muted-foreground">Approved</span>
                     <span className="text-2xl font-bold text-emerald-600">{getApprovedQueriesCount()}</span>
                   </div>
                 </div>
-              </div>
+              </Card>
             </div>
 
             {/* Workflow Steps */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">🚀 RAG Workflow</h3>
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center">
+                <Rocket className="h-4 w-4 mr-2" />
+                RAG Workflow
+              </h3>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900">1. Upload Document Chunks</h4>
-                    <p className="text-sm text-gray-600">Upload JSONL files containing your preprocessed document chunks</p>
+                    <h4 className="font-medium text-foreground">1. Upload Document Chunks</h4>
+                    <p className="text-sm text-muted-foreground">Upload JSONL files containing your preprocessed document chunks</p>
                   </div>
-                  <button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('chunks')}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                    shortcut={['U']}
                   >
-                    📄 Upload
-                  </button>
+                    Upload
+                  </ButtonWithShortcut>
                 </div>
 
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900">2. Extract Facts</h4>
-                    <p className="text-sm text-gray-600">Extract structured facts from uploaded chunks using LLM</p>
+                    <h4 className="font-medium text-foreground">2. Extract Facts</h4>
+                    <p className="text-sm text-muted-foreground">Extract structured facts from uploaded chunks using LLM</p>
                   </div>
-                  <button
+                  <ButtonWithShortcut
                     onClick={handleExtractFacts}
                     disabled={getChunksCount() === 0 || !provider || !!operationStatus}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                    className="bg-indigo-600 hover:bg-indigo-700"
+                    shortcut={['F']}
                   >
-                    🔍 Extract
-                  </button>
+                    Extract
+                  </ButtonWithShortcut>
                 </div>
 
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900">3. Generate Queries</h4>
-                    <p className="text-sm text-gray-600">Generate both standard and multi-hop queries from approved facts</p>
+                    <h4 className="font-medium text-foreground">3. Generate Queries</h4>
+                    <p className="text-sm text-muted-foreground">Generate both standard and multi-hop queries from approved facts</p>
                   </div>
-                  <button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('queries')}
                     disabled={getApprovedFactsCount() === 0}
-                    className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50"
+                    className="bg-purple-600 hover:bg-purple-700"
+                    shortcut={['G']}
                   >
-                    ❓ Generate
-                  </button>
+                    Generate
+                  </ButtonWithShortcut>
                 </div>
 
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between p-4 border border-border rounded-lg">
                   <div>
-                    <h4 className="font-medium text-gray-900">4. Export Dataset</h4>
-                    <p className="text-sm text-gray-600">Download your final approved query dataset</p>
+                    <h4 className="font-medium text-foreground">4. Export Dataset</h4>
+                    <p className="text-sm text-muted-foreground">Download your final approved query dataset</p>
                   </div>
-                  <button
+                  <ButtonWithShortcut
                     onClick={() => setActiveTab('export')}
                     disabled={getApprovedQueriesCount() === 0}
-                    className="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    shortcut={['X']}
                   >
-                    📊 Export
-                  </button>
+                    Export
+                  </ButtonWithShortcut>
                 </div>
               </div>
-            </div>
+            </Card>
           </div>
         )}
 

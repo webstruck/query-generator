@@ -83,11 +83,15 @@ This will:
 src/qgen/web/
 ├── backend.py           # FastAPI server (single file)
 ├── launcher.py          # Launch script  
-├── frontend/            # React application
+├── frontend/            # React application (Shadcn/UI - Default)
 │   ├── src/
 │   │   ├── App.tsx      # Main app component
-│   │   └── components/  # React components
+│   │   ├── components/  # React components
+│   │   ├── ui/          # Shadcn UI components
+│   │   └── hooks/       # Custom hooks (keyboard shortcuts, theme)
 │   ├── dist/            # Built files
 │   └── package.json     # Frontend dependencies
+├── frontend-legacy/     # Original React app (kept for reference)
+│   └── ...             # Legacy implementation
 └── README.md           # This file
 ```

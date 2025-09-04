@@ -1,8 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
-import { Cloud, Settings, Bot, Github, Zap } from 'lucide-react'
 
 interface Provider {
   available: string[]
@@ -48,11 +44,11 @@ export default function ProviderSelector({
 
   const getProviderIcon = (provider: string) => {
     switch (provider) {
-      case 'openai': return <Bot className="h-4 w-4" />
-      case 'azure': return <Cloud className="h-4 w-4" />
-      case 'github': return <Github className="h-4 w-4" />
-      case 'ollama': return <Zap className="h-4 w-4" />
-      default: return <Settings className="h-4 w-4" />
+      case 'openai': return '🤖'
+      case 'azure': return '☁️'
+      case 'github': return '🐙'
+      case 'ollama': return '🦙'
+      default: return '🔧'
     }
   }
 
@@ -69,72 +65,60 @@ export default function ProviderSelector({
   if (loading) {
     return (
       <div className={`${compact ? 'w-32' : 'w-full'}`}>
-        <div className="animate-pulse bg-muted rounded-lg h-10"></div>
+        <div className="animate-pulse bg-gray-200 rounded-lg h-10"></div>
       </div>
     )
   }
 
   if (compact) {
     return (
-      <Select value={selectedProvider} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="w-32">
-          <SelectValue>
-            <div className="flex items-center space-x-2">
-              {getProviderIcon(selectedProvider)}
-              <span>{getProviderName(selectedProvider)}</span>
-            </div>
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {providers.available.map((provider) => (
-            <SelectItem key={provider} value={provider}>
-              <div className="flex items-center space-x-2">
-                {getProviderIcon(provider)}
-                <span>{getProviderName(provider)}</span>
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <select
+        value={selectedProvider}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="w-32 px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+      >
+        {providers.available.map((provider) => (
+          <option key={provider} value={provider}>
+            {getProviderName(provider)}
+          </option>
+        ))}
+      </select>
     )
   }
 
   return (
-    <div className="w-full space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">
-          LLM Provider
-        </label>
+    <div className="w-full">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        LLM Provider
         {providers.auto_detected && (
-          <Badge variant="secondary" className="text-xs">
+          <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
             Auto-detected: {getProviderName(providers.auto_detected)}
-          </Badge>
+          </span>
         )}
-      </div>
-      
+      </label>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {providers.available.map((provider) => (
-          <Card 
+          <button
             key={provider}
-            className={`cursor-pointer transition-all ${
+            onClick={() => onChange(provider)}
+            disabled={disabled}
+            className={`p-3 rounded-lg border-2 transition-all flex flex-col items-center space-y-2 ${
               selectedProvider === provider
-                ? 'ring-2 ring-primary bg-primary/5'
-                : 'hover:bg-muted/50'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => !disabled && onChange(provider)}
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 bg-white hover:border-gray-300 text-gray-700'
+            } ${
+              disabled 
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'hover:shadow-sm cursor-pointer'
+            }`}
           >
-            <CardContent className="p-3 text-center">
-              <div className="space-y-2">
-                <div className="flex justify-center">{getProviderIcon(provider)}</div>
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">{getProviderName(provider)}</div>
-                  {provider === providers.auto_detected && (
-                    <Badge variant="outline" className="text-xs">Auto</Badge>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <span className="text-2xl">{getProviderIcon(provider)}</span>
+            <span className="text-sm font-medium">{getProviderName(provider)}</span>
+            {provider === providers.auto_detected && (
+              <span className="text-xs text-blue-600">Auto</span>
+            )}
+          </button>
         ))}
       </div>
     </div>

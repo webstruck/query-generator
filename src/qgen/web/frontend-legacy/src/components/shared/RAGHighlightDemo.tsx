@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { ChunkViewer, type ChunkData } from './ChunkViewer'
 import { FactGrid } from './FactCard'
 import { type HighlightSpan, type HighlightType } from './ChunkHighlighter'
-import { FileText, Search, Lightbulb } from 'lucide-react'
 
 /**
  * Demo component showing RAG highlighting in action
@@ -182,17 +181,11 @@ export const RAGHighlightDemo: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
           <div className="text-2xl font-bold text-blue-600">{sampleChunks.length}</div>
-          <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
-            <FileText className="h-4 w-4" />
-            <span>Document Chunks</span>
-          </div>
+          <div className="text-sm text-gray-600">Document Chunks</div>
         </div>
         <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
           <div className="text-2xl font-bold text-green-600">{sampleFacts.length}</div>
-          <div className="text-sm text-gray-600 flex items-center justify-center space-x-1">
-            <Search className="h-4 w-4" />
-            <span>Extracted Facts</span>
-          </div>
+          <div className="text-sm text-gray-600">Extracted Facts</div>
         </div>
         <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
           <div className="text-2xl font-bold text-purple-600">{allHighlights.length}</div>
@@ -209,9 +202,8 @@ export const RAGHighlightDemo: React.FC = () => {
         {/* Left: Chunk Viewer */}
         <div>
           <div className="mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2 flex items-center space-x-2">
-              <FileText className="h-5 w-5" />
-              <span>Document Chunks with Highlighting</span>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              📄 Document Chunks with Highlighting
             </h2>
             <p className="text-sm text-gray-600">
               Source chunks with extracted facts and entities highlighted. 
@@ -232,9 +224,8 @@ export const RAGHighlightDemo: React.FC = () => {
         {/* Right: Fact Review */}
         <div>
           <div className="mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2 flex items-center space-x-2">
-              <Search className="h-5 w-5" />
-              <span>Extracted Facts Review</span>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              🔍 Extracted Facts Review
             </h2>
             <p className="text-sm text-gray-600">
               Review and approve extracted facts. Expand cards to see source context with highlighting.
@@ -290,9 +281,8 @@ export const RAGHighlightDemo: React.FC = () => {
 
       {/* Usage Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 mb-3 flex items-center space-x-2">
-          <Lightbulb className="h-5 w-5" />
-          <span>How to Use This Interface</span>
+        <h3 className="text-lg font-semibold text-blue-900 mb-3">
+          💡 How to Use This Interface
         </h3>
         <div className="grid md:grid-cols-2 gap-4 text-sm text-blue-800">
           <div>

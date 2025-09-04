@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNotification } from '../shared/Notification'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { CheckCircle, XCircle, FileText } from 'lucide-react'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface Query {
   id: number
@@ -78,7 +84,7 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
       await loadQueries()
       setSelectedQueries(new Set())
       onUpdate?.() // Update parent dashboard
-      showNotification('Selected queries approved successfully! ✅', 'success')
+      showNotification('Selected queries approved successfully!', 'success')
     } catch (error) {
       showNotification(`Failed to approve queries: ${error}`, 'error')
     } finally {
@@ -97,7 +103,7 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
       )
       setSelectedQueries(new Set())
       onUpdate?.() // Update parent dashboard
-      showNotification('Selected queries rejected successfully! ❌', 'success')
+      showNotification('Selected queries rejected successfully!', 'success')
     } catch (error) {
       showNotification(`Failed to reject queries: ${error}`, 'error')
     } finally {
@@ -161,112 +167,167 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
   }
 
   const getQueryStatusStyle = (status: string, isSelected: boolean) => {
-    const baseClasses = "p-4 rounded-lg border-2 mb-4 transition-all"
+    const baseClasses = "p-4 rounded-lg border-2 mb-4 transition-all cursor-pointer"
     
     if (isSelected) {
-      return `${baseClasses} border-blue-500 bg-blue-50 shadow-md`
+      return `${baseClasses} border-primary bg-primary/5 shadow-md`
     }
     
     switch (status) {
       case 'approved':
-        return `${baseClasses} border-green-200 bg-green-50`
+        return `${baseClasses} border-green-500/50 bg-green-50/50 dark:bg-green-950/20`
       case 'rejected':
-        return `${baseClasses} border-red-200 bg-red-50`
+        return `${baseClasses} border-red-500/50 bg-red-50/50 dark:bg-red-950/20`
       default:
-        return `${baseClasses} border-gray-200 bg-white`
+        return `${baseClasses} border-border bg-muted/50 hover:border-muted-foreground/50`
     }
   }
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'approved': return '✅'
-      case 'rejected': return '❌'
-      default: return '📝'
+      case 'approved': return <CheckCircle className="h-4 w-4 text-green-600" />
+      case 'rejected': return <XCircle className="h-4 w-4 text-red-600" />
+      default: return <FileText className="h-4 w-4 text-blue-600" />
     }
   }
+
+  // Handler functions for keyboard shortcuts
+  const bulkEdit = () => {
+    if (selectedQueries.size === 1) {
+      const queryId = Array.from(selectedQueries)[0]
+      const query = queries.find(q => q.id === queryId)
+      if (query) startEdit(query)
+    }
+  }
+
+  const isEditing = editingQuery !== null
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Selection
+      { keys: ['⌘', 'A'], handler: selectAll, description: 'Select all queries' },
+      { keys: ['⌘', 'D'], handler: selectNone, description: 'Select none' },
+      
+      // Bulk actions (when queries selected)
+      { keys: ['A'], handler: bulkApprove, description: 'Approve selected', enabled: selectedQueries.size > 0 },
+      { keys: ['R'], handler: bulkReject, description: 'Reject selected', enabled: selectedQueries.size > 0 },
+      { keys: ['E'], handler: bulkEdit, description: 'Edit selected', enabled: selectedQueries.size === 1 },
+      
+      // Edit mode
+      { keys: ['⌘', 'S'], handler: saveEdit, description: 'Save edit', enabled: isEditing },
+      { keys: ['Esc'], handler: cancelEdit, description: 'Cancel edit', enabled: isEditing }
+    ],
+    enabled: true
+  })
 
   return (
     <>
       <NotificationContainer />
       <div>
       {/* Floating Action Bar */}
-      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6 sticky top-4 z-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* Selection Controls */}
-          <div className="flex items-center space-x-4">
-            <div className="flex space-x-2">
-              <button
-                onClick={selectAll}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
-              >
-                ☑️ All
-              </button>
-              <button
-                onClick={selectNone}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
-              >
-                ☐ None
-              </button>
+      <Card className="mb-6 sticky top-4 z-10">
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Selection Controls */}
+            <div className="flex items-center space-x-4">
+              <div className="flex space-x-2">
+                <ButtonWithShortcut
+                  onClick={selectAll}
+                  variant="outline"
+                  size="sm"
+                  shortcut={['⌘', 'A']}
+                >
+                  All
+                </ButtonWithShortcut>
+                <ButtonWithShortcut
+                  onClick={selectNone}
+                  variant="outline"
+                  size="sm"
+                  shortcut={['⌘', 'D']}
+                >
+                  None
+                </ButtonWithShortcut>
+              </div>
+              
+              <span className="text-sm text-muted-foreground">
+                {selectedQueries.size === 0 
+                  ? 'No queries selected' 
+                  : `${selectedQueries.size} selected`
+                }
+              </span>
             </div>
-            
-            <span className="text-sm text-gray-600">
-              {selectedQueries.size === 0 
-                ? 'No queries selected' 
-                : `${selectedQueries.size} selected`
-              }
-            </span>
-          </div>
 
           {/* Action Buttons */}
           {selectedQueries.size > 0 && (
             <div className="flex space-x-2">
-              <button
+              <ButtonWithShortcut
                 onClick={bulkApprove}
                 disabled={loading}
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+                variant="default"
+                shortcut={['A']}
               >
-                ✅ Approve
-              </button>
-              <button
+                Approve
+              </ButtonWithShortcut>
+              <ButtonWithShortcut
                 onClick={bulkReject}
                 disabled={loading}
-                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors disabled:opacity-50"
+                variant="destructive"
+                shortcut={['R']}
               >
-                ❌ Reject
-              </button>
+                Reject
+              </ButtonWithShortcut>
               {selectedQueries.size === 1 && (
-                <button
+                <ButtonWithShortcut
                   onClick={() => {
                     const queryId = Array.from(selectedQueries)[0]
                     const query = queries.find(q => q.id === queryId)
                     if (query) startEdit(query)
                   }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors"
+                  variant="secondary"
+                  shortcut={['E']}
                 >
-                  ✏️ Edit
-                </button>
+                  Edit
+                </ButtonWithShortcut>
               )}
             </div>
           )}
 
           {/* Filter */}
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All ({statusCounts.all})</option>
-            <option value="pending">Pending ({statusCounts.pending}) 📝</option>
-            <option value="approved">Approved ({statusCounts.approved}) ✅</option>
-            <option value="rejected">Rejected ({statusCounts.rejected}) ❌</option>
-          </select>
-        </div>
-      </div>
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ({statusCounts.all})</SelectItem>
+              <SelectItem value="pending">
+                <div className="flex items-center space-x-2">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                  <span>Pending ({statusCounts.pending})</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="approved">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <span>Approved ({statusCounts.approved})</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="rejected">
+                <div className="flex items-center space-x-2">
+                  <XCircle className="h-4 w-4 text-red-600" />
+                  <span>Rejected ({statusCounts.rejected})</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Query List */}
       <div className="space-y-4">
         {filteredQueries.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-muted-foreground">
             {queries.length === 0 
               ? 'No queries generated yet' 
               : `No ${filter} queries found`
@@ -288,16 +349,16 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleQuerySelection(query.id)}
-                    className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-primary"
                   />
                   
                   {/* Content */}
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-2">
-                      <span className="text-lg">{getStatusIcon(query.status)}</span>
-                      <span className="font-medium text-gray-900">
-                        Query {query.id + 1}
-                      </span>
+                      {getStatusIcon(query.status)}
+                      <Badge variant="secondary" className="font-medium">
+                        Query #{query.id + 1}
+                      </Badge>
                     </div>
                     
                     {isEditing ? (
@@ -305,65 +366,79 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
                         <textarea
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
-                          className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           rows={3}
                         />
                         <div className="flex space-x-2">
-                          <button
+                          <ButtonWithShortcut
                             onClick={saveEdit}
-                            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
+                            variant="default"
+                            shortcut={['⌘', 'S']}
                           >
-                            💾 Save
-                          </button>
-                          <button
+                            Save
+                          </ButtonWithShortcut>
+                          <ButtonWithShortcut
                             onClick={cancelEdit}
-                            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors"
+                            variant="outline"
+                            shortcut={['Esc']}
                           >
-                            ❌ Cancel
-                          </button>
+                            Cancel
+                          </ButtonWithShortcut>
                         </div>
                       </div>
                     ) : (
                       <div>
-                        <p className="text-gray-900 mb-2">{query.text}</p>
+                        <p className="mb-2">{query.text}</p>
                         
                         {/* Tuple Information */}
-                        <div className="text-sm text-gray-600">
+                        <div className="text-sm text-muted-foreground mb-3">
                           <span className="font-medium">From tuple:</span>{' '}
-                          {Object.entries(query.tuple_data).map(([key, value]) => (
-                            <span key={key} className="mr-3">
-                              {key}={value}
-                            </span>
-                          ))}
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {Object.entries(query.tuple_data).map(([key, value]) => (
+                              <Badge key={key} variant="outline" className="text-xs">
+                                {key}={value}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
                         
                         {/* Individual Action Buttons */}
                         {!isSelected && (
                           <div className="flex space-x-2 mt-3">
-                            <button
+                            <ButtonWithShortcut
                               onClick={async () => {
                                 await updateQueryStatus(query.id, 'approved')
                                 onUpdate?.()
                               }}
-                              className="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 transition-colors"
+                              variant="secondary"
+                              size="sm"
+                              shortcut={['A']}
+                              showShortcut={false}
                             >
-                              ✅ Approve
-                            </button>
-                            <button
+                              Approve
+                            </ButtonWithShortcut>
+                            <ButtonWithShortcut
                               onClick={async () => {
                                 await updateQueryStatus(query.id, 'rejected')
                                 onUpdate?.()
                               }}
-                              className="text-sm bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 transition-colors"
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              shortcut={['R']}
+                              showShortcut={false}
                             >
-                              ❌ Reject
-                            </button>
-                            <button
+                              Reject
+                            </ButtonWithShortcut>
+                            <ButtonWithShortcut
                               onClick={() => startEdit(query)}
-                              className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded hover:bg-blue-200 transition-colors"
+                              variant="outline"
+                              size="sm"
+                              shortcut={['E']}
+                              showShortcut={false}
                             >
-                              ✏️ Edit
-                            </button>
+                              Edit
+                            </ButtonWithShortcut>
                           </div>
                         )}
                       </div>

@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react'
 import { ChunkHighlighter, type HighlightSpan, HighlightLegend, SearchHighlighter } from './ChunkHighlighter'
-import { FileText, Folder } from 'lucide-react'
 
 export interface ChunkData {
   chunk_id: string
@@ -87,16 +86,10 @@ const ChunkCard: React.FC<{
           {showMetadata && (
             <div className="text-xs text-gray-500 space-x-2">
               {chunk.source_document && (
-                <span className="flex items-center space-x-1">
-                  <FileText className="h-4 w-4" />
-                  <span>{chunk.source_document}</span>
-                </span>
+                <span>📄 {chunk.source_document}</span>
               )}
               {chunk.section && (
-                <span className="flex items-center space-x-1">
-                  <Folder className="h-4 w-4" />
-                  <span>{chunk.section}</span>
-                </span>
+                <span>📂 {chunk.section}</span>
               )}
             </div>
           )}

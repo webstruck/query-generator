@@ -12,22 +12,22 @@ from rich.console import Console
 
 console = Console()
 
-def launch_web_interface(shadcn=True):
+def launch_web_interface(legacy=False):
     """Launch the QGen web interface with FastAPI backend and React frontend."""
     
     # Paths
     web_dir = Path(__file__).parent
     backend_file = web_dir / "backend.py"
-    frontend_dir = web_dir / ("frontend-shadcn" if shadcn else "frontend")
+    frontend_dir = web_dir / ("frontend-legacy" if legacy else "frontend")
     
     # Check if backend exists
     if not backend_file.exists():
         console.print("[red]❌ Backend file not found. Web interface not properly installed.[/red]")
-        returnxx
+        return
     
     # Check if frontend exists
     if not frontend_dir.exists():
-        frontend_type = "shadcn" if shadcn else "original"
+        frontend_type = "legacy" if legacy else "default"
         console.print(f"[red]❌ {frontend_type.title()} frontend directory not found. Web interface not properly installed.[/red]")
         return
     
@@ -44,8 +44,8 @@ def launch_web_interface(shadcn=True):
         ], cwd=str(web_dir), env=env)
         
         # Start frontend dev server
-        frontend_type = "shadcn" if shadcn else "original"
-        dev_port = 5174 if shadcn else 5173
+        frontend_type = "legacy" if legacy else "default"
+        dev_port = 5173 if legacy else 5174
         console.print(f"⚛️  Starting React development server ({frontend_type})...")
         frontend_process = subprocess.Popen([
             "npm", "run", "dev"
@@ -62,10 +62,10 @@ def launch_web_interface(shadcn=True):
         console.print(f"✅ {frontend_type.title()} web interface is running!")
         console.print(f"   Frontend: {browser_url}")
         console.print("   Backend API: http://localhost:8888")
-        if shadcn:
-            console.print("   Original: http://localhost:5173 (if running)")
+        if legacy:
+            console.print("   Default (Shadcn): http://localhost:5174 (if running)")
         else:
-            console.print("   Shadcn: http://localhost:5174 (if running)")
+            console.print("   Legacy: http://localhost:5173 (if available)")
         console.print("")
         console.print("Press Ctrl+C to stop servers")
         

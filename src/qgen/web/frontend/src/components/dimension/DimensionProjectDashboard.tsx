@@ -3,6 +3,16 @@ import QueryReview from './QueryReview'
 import TupleReview from './TupleReview'
 import { useNotification } from '../shared/Notification'
 import { type DimensionProject } from '../ProjectSelector'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '../ui/button-with-shortcut'
+import { useKeyboardShortcuts } from '../../hooks/use-keyboard-shortcuts'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Progress } from '@/components/ui/progress'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { LayoutDashboard, Settings2, Target, FileText, Download, Settings, Rocket, X, Trash2, File, FileType, AlertTriangle } from 'lucide-react'
 
 interface ProjectData {
   name: string
@@ -154,7 +164,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
               clearInterval(waitForCompletion)
               cleanup()
               await loadProjectData()
-              showNotification('Tuples generated successfully! 🎯', 'success')
+              showNotification('Tuples generated successfully!', 'success')
               setLoading(false)
               setGeneratingTuples(false)
             }
@@ -163,7 +173,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
             clearInterval(waitForCompletion)
             cleanup()
             await loadProjectData()
-            showNotification('Tuples generated successfully! 🎯', 'success')
+            showNotification('Tuples generated successfully!', 'success')
             setLoading(false)
             setGeneratingTuples(false)
           }
@@ -201,7 +211,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
       })
 
       await loadProjectData()
-      showNotification('All tuples approved! ✅', 'success')
+      showNotification('All tuples approved!', 'success')
     } catch (error) {
       showNotification(`Failed to approve tuples: ${error}`, 'error')
     } finally {
@@ -245,7 +255,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
               cleanup()
               await loadProjectData()
               setActiveTab('queries') // Switch to queries tab
-              showNotification('Queries generated successfully! 📝', 'success')
+              showNotification('Queries generated successfully!', 'success')
               setLoading(false)
               setGeneratingQueries(false)
             }
@@ -255,7 +265,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
             cleanup()
             await loadProjectData()
             setActiveTab('queries') // Switch to queries tab
-            showNotification('Queries generated successfully! 📝', 'success')
+            showNotification('Queries generated successfully!', 'success')
             setLoading(false)
             setGeneratingQueries(false)
           }
@@ -300,7 +310,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
 
       await loadProjectData()
       setEditingDimensions(false)
-      showNotification('Dimensions updated successfully! 🎛️', 'success')
+      showNotification('Dimensions updated successfully!', 'success')
     } catch (error) {
       showNotification(`Failed to update dimensions: ${error}`, 'error')
     } finally {
@@ -369,13 +379,42 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
       link.click()
       document.body.removeChild(link)
       
-      showNotification(`Dataset exported successfully! 📊`, 'success')
+      showNotification(`Dataset exported successfully!`, 'success')
     } catch (error) {
       showNotification(`Failed to export dataset: ${error}`, 'error')
     } finally {
       setLoading(false)
     }
   }
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Tab navigation
+      { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
+      { keys: ['2'], handler: () => setActiveTab('dimensions'), description: 'Dimensions tab' },
+      { keys: ['3'], handler: () => setActiveTab('tuples'), description: 'Tuples tab' },
+      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
+      
+      // Main workflow actions (only when not editing)
+      { keys: ['E'], handler: () => setActiveTab('dimensions'), description: 'Edit dimensions', enabled: !editingDimensions },
+      { keys: ['G'], handler: generateTuples, description: 'Generate tuples', enabled: !loading && !editingDimensions },
+      { keys: ['A'], handler: approveTuples, description: 'Approve all tuples', enabled: !loading && (projectData?.data_status?.generated_tuples || 0) > 0 && !editingDimensions },
+      { keys: ['Q'], handler: generateQueries, description: 'Generate queries', enabled: !loading && (projectData?.data_status?.approved_tuples || 0) > 0 && !editingDimensions },
+      { keys: ['R'], handler: () => setActiveTab('queries'), description: 'Review queries', enabled: (projectData?.data_status?.generated_queries || 0) > 0 && !editingDimensions },
+      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: (projectData?.data_status?.approved_queries || 0) > 0 && !editingDimensions },
+      
+      // Dimension editing (only when editing)
+      { keys: ['⌘', 'S'], handler: saveDimensions, description: 'Save dimensions', enabled: editingDimensions },
+      { keys: ['Esc'], handler: cancelEditingDimensions, description: 'Cancel editing', enabled: editingDimensions },
+      
+      // Export actions (when on export tab)
+      { keys: ['⌘', 'C'], handler: () => exportData('csv'), description: 'Export CSV', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 },
+      { keys: ['⌘', 'J'], handler: () => exportData('json'), description: 'Export JSON', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 }
+    ],
+    enabled: true
+  })
 
   if (!projectData) {
     return <div className="text-center py-8">Loading project...</div>
@@ -387,271 +426,296 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
       
       {/* Progress Bar */}
       {progress.visible && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-white rounded-lg shadow-lg border p-6 min-w-96">
-          <div className="text-center mb-4">
-            <div className="text-lg font-semibold text-gray-900 mb-2">Processing...</div>
-            <div className="text-sm text-gray-600">{progress.status}</div>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${progress.value}%` }}
-            />
-          </div>
-          <div className="text-center text-sm text-gray-500">
-            {Math.round(progress.value)}% complete
-          </div>
-        </div>
+        <Card className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 min-w-96">
+          <CardContent className="p-6">
+            <div className="text-center mb-4">
+              <div className="text-lg font-semibold mb-2">Processing...</div>
+              <div className="text-sm text-muted-foreground">{progress.status}</div>
+            </div>
+            <Progress value={progress.value} className="mb-4" />
+            <div className="text-center text-sm text-muted-foreground">
+              {Math.round(progress.value)}% complete
+            </div>
+          </CardContent>
+        </Card>
       )}
       
       <div>
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
-          {[
-            { id: 'overview', name: '📋 Overview', count: null },
-            { id: 'dimensions', name: '🎛️ Dimensions', count: projectData.dimensions.length },
-            { id: 'tuples', name: '🎯 Tuples', count: projectData.data_status.generated_tuples },
-            { id: 'queries', name: '📝 Queries', count: projectData.data_status.generated_queries },
-            { id: 'export', name: '📊 Export', count: null }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.name}
-              {tab.count !== null && (
-                <span className="ml-1 bg-gray-100 text-gray-600 py-0.5 px-2 rounded-full text-xs">
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="overview" className="flex items-center gap-2">
+            <LayoutDashboard className="h-4 w-4" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="dimensions" className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4" />
+            Dimensions
+            <Badge variant="secondary" className="ml-1">
+              {projectData.dimensions.length}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="tuples" className="flex items-center gap-2">
+            <Target className="h-4 w-4" />
+            Tuples
+            <Badge variant="secondary" className="ml-1">
+              {projectData?.data_status?.generated_tuples || 0}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="queries" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Queries
+            <Badge variant="secondary" className="ml-1">
+              {projectData?.data_status?.generated_queries || 0}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="export" className="flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            Export
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
+        <TabsContent value="overview" className="space-y-6 mt-6">
           {/* Provider Selection and Stats */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Provider Settings */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="mr-2">🔧</span>
-                LLM Provider
-              </h3>
-              <div className="space-y-4">
-                <select
-                  value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {providers.available.map((provider) => (
-                    <option key={provider} value={provider}>
-                      {provider}
-                      {provider === providers.auto_detected && ' (Auto-detected)'}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Settings className="mr-2 h-4 w-4" />
+                  LLM Provider
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Select value={selectedProvider} onValueChange={setSelectedProvider}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providers.available.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {provider}
+                        {provider === providers.auto_detected && ' (Auto-detected)'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
                   Selected provider will be used for tuple and query generation
                 </p>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Tuples Stats */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="mr-2">🎯</span>
-                Tuples
-              </h3>
-              <div className="space-y-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Target className="mr-2 h-4 w-4" />
+                  Tuples
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Generated</span>
-                  <span className="text-2xl font-bold text-blue-600">{projectData.data_status.generated_tuples}</span>
+                  <span className="text-sm text-muted-foreground">Generated</span>
+                  <span className="text-2xl font-bold text-blue-600">{projectData?.data_status?.generated_tuples || 0}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Approved</span>
-                  <span className="text-2xl font-bold text-green-600">{projectData.data_status.approved_tuples}</span>
+                  <span className="text-sm text-muted-foreground">Approved</span>
+                  <span className="text-2xl font-bold text-green-600">{projectData?.data_status?.approved_tuples || 0}</span>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
             {/* Queries Stats */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <span className="mr-2">📝</span>
-                Queries
-              </h3>
-              <div className="space-y-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Queries
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Generated</span>
-                  <span className="text-2xl font-bold text-purple-600">{projectData.data_status.generated_queries}</span>
+                  <span className="text-sm text-muted-foreground">Generated</span>
+                  <span className="text-2xl font-bold text-purple-600">{projectData?.data_status?.generated_queries || 0}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Approved</span>
-                  <span className="text-2xl font-bold text-emerald-600">{projectData.data_status.approved_queries}</span>
+                  <span className="text-sm text-muted-foreground">Approved</span>
+                  <span className="text-2xl font-bold text-emerald-600">{projectData?.data_status?.approved_queries || 0}</span>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Workflow Steps */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">🚀 QGen Workflow</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Rocket className="mr-2 h-4 w-4" />
+                QGen Workflow
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">1. Review & Edit Dimensions</h4>
-                  <p className="text-sm text-gray-600">Define and customize the dimensions that will drive query generation</p>
+                  <h4 className="font-medium">1. Review & Edit Dimensions</h4>
+                  <p className="text-sm text-muted-foreground">Define and customize the dimensions that will drive query generation</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('dimensions')}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+                  variant="default"
+                  shortcut="edit"
                 >
-                  🎛️ Edit
-                </button>
+                  Edit
+                </ButtonWithShortcut>
               </div>
 
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">2. Generate Tuples</h4>
-                  <p className="text-sm text-gray-600">Create dimension combinations from your project dimensions</p>
+                  <h4 className="font-medium">2. Generate Tuples</h4>
+                  <p className="text-sm text-muted-foreground">Create dimension combinations from your project dimensions</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={generateTuples}
                   disabled={loading}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+                  variant="secondary"
+                  className="flex items-center space-x-2"
+                  shortcut={['G']}
                 >
                   {generatingTuples && (
-                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
                   <span>{generatingTuples ? 'Generating...' : 'Generate'}</span>
-                </button>
+                </ButtonWithShortcut>
               </div>
 
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">3. Approve Tuples</h4>
-                  <p className="text-sm text-gray-600">Review and approve generated tuples (simplified - approves all)</p>
+                  <h4 className="font-medium">3. Approve Tuples</h4>
+                  <p className="text-sm text-muted-foreground">Review and approve generated tuples (simplified - approves all)</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={approveTuples}
-                  disabled={loading || projectData.data_status.generated_tuples === 0}
-                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+                  disabled={loading || (projectData?.data_status?.generated_tuples || 0) === 0}
+                  variant="default"
+                  className="flex items-center space-x-2"
+                  shortcut={['A']}
                 >
                   {approvingTuples && (
-                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
-                  <span>{approvingTuples ? 'Approving...' : '✅ Approve All'}</span>
-                </button>
+                  <span>{approvingTuples ? 'Approving...' : 'Approve All'}</span>
+                </ButtonWithShortcut>
               </div>
 
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">4. Generate Queries</h4>
-                  <p className="text-sm text-gray-600">Create natural language queries from approved tuples</p>
+                  <h4 className="font-medium">4. Generate Queries</h4>
+                  <p className="text-sm text-muted-foreground">Create natural language queries from approved tuples</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={generateQueries}
-                  disabled={loading || projectData.data_status.approved_tuples === 0}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+                  disabled={loading || (projectData?.data_status?.approved_tuples || 0) === 0}
+                  variant="secondary"
+                  className="flex items-center space-x-2"
+                  shortcut={['Q']}
                 >
                   {generatingQueries && (
-                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                    <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
                   )}
                   <span>{generatingQueries ? 'Generating...' : 'Generate'}</span>
-                </button>
+                </ButtonWithShortcut>
               </div>
 
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">5. Review & Approve Queries</h4>
-                  <p className="text-sm text-gray-600">Review, edit, approve, or reject individual queries</p>
+                  <h4 className="font-medium">5. Review & Approve Queries</h4>
+                  <p className="text-sm text-muted-foreground">Review, edit, approve, or reject individual queries</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('queries')}
-                  disabled={projectData.data_status.generated_queries === 0}
-                  className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
+                  disabled={(projectData?.data_status?.generated_queries || 0) === 0}
+                  variant="outline"
+                  shortcut={['R']}
                 >
-                  📝 Review
-                </button>
+                  Review
+                </ButtonWithShortcut>
               </div>
 
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <h4 className="font-medium text-gray-900">6. Export Dataset</h4>
-                  <p className="text-sm text-gray-600">Download your final approved query dataset</p>
+                  <h4 className="font-medium">6. Export Dataset</h4>
+                  <p className="text-sm text-muted-foreground">Download your final approved query dataset</p>
                 </div>
-                <button
+                <ButtonWithShortcut
                   onClick={() => setActiveTab('export')}
-                  disabled={projectData.data_status.approved_queries === 0}
-                  className="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  disabled={(projectData?.data_status?.approved_queries || 0) === 0}
+                  variant="outline"
+                  shortcut={['X']}
                 >
-                  📊 Export
-                </button>
+                  Export
+                </ButtonWithShortcut>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {activeTab === 'dimensions' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">🎛️ Dimensions</h3>
-            {!editingDimensions ? (
-              <button
-                onClick={startEditingDimensions}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors"
-              >
-                ✏️ Edit Dimensions
-              </button>
-            ) : (
-              <div className="space-x-2">
-                <button
-                  onClick={saveDimensions}
-                  disabled={loading}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  💾 Save
-                </button>
-                <button
-                  onClick={cancelEditingDimensions}
-                  className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors"
-                >
-                  ❌ Cancel
-                </button>
+        <TabsContent value="dimensions" className="mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle className="flex items-center">
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  Dimensions
+                </CardTitle>
+                {!editingDimensions ? (
+                  <Button
+                    onClick={startEditingDimensions}
+                    variant="default"
+                  >
+                    Edit Dimensions
+                  </Button>
+                ) : (
+                  <div className="space-x-2">
+                    <ButtonWithShortcut
+                      onClick={saveDimensions}
+                      disabled={loading}
+                      variant="default"
+                      shortcut="save"
+                    >
+                      Save
+                    </ButtonWithShortcut>
+                    <ButtonWithShortcut
+                      onClick={cancelEditingDimensions}
+                      variant="outline"
+                      shortcut="cancel"
+                    >
+                      Cancel
+                    </ButtonWithShortcut>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </CardHeader>
+            <CardContent>
           
           {!editingDimensions ? (
             <div className="space-y-4">
               {projectData.dimensions.map((dim, index) => (
-                <div key={index} className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900">{dim.name}</h4>
-                  <p className="text-sm text-gray-600 mt-1">{dim.description}</p>
-                  <div className="mt-2">
-                    <span className="text-xs text-gray-500">Values:</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {dim.values.map((value, valueIndex) => (
-                        <span
-                          key={valueIndex}
-                          className="inline-block bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded"
-                        >
-                          {value}
-                        </span>
-                      ))}
+                <Card key={index}>
+                  <CardContent className="p-4">
+                    <h4 className="font-medium">{dim.name}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">{dim.description}</p>
+                    <div className="mt-2">
+                      <span className="text-xs text-muted-foreground">Values:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {dim.values.map((value, valueIndex) => (
+                          <Badge key={valueIndex} variant="secondary">
+                            {value}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           ) : (
@@ -659,177 +723,202 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
               {/* Existing Dimensions */}
               <div className="space-y-4">
                 {tempDimensions.map((dim, dimIndex) => (
-                  <div key={dimIndex} className="border border-gray-300 rounded-lg p-4 bg-gray-50">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex-1 space-y-2">
-                        <input
-                          type="text"
-                          value={dim.name}
-                          onChange={(e) => {
-                            const updated = [...tempDimensions]
-                            updated[dimIndex].name = e.target.value
-                            setTempDimensions(updated)
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded font-medium"
-                          placeholder="Dimension name"
-                        />
-                        <input
-                          type="text"
-                          value={dim.description}
-                          onChange={(e) => {
-                            const updated = [...tempDimensions]
-                            updated[dimIndex].description = e.target.value
-                            setTempDimensions(updated)
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                          placeholder="Dimension description"
-                        />
-                      </div>
-                      <button
-                        onClick={() => removeDimension(dimIndex)}
-                        className="ml-2 text-red-600 hover:text-red-800 p-1"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-xs text-gray-500">Values:</label>
-                      {dim.values.map((value, valueIndex) => (
-                        <div key={valueIndex} className="flex items-center space-x-2">
-                          <input
+                  <Card key={dimIndex}>
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 space-y-2">
+                          <Input
                             type="text"
-                            value={value}
-                            onChange={(e) => updateDimensionValue(dimIndex, valueIndex, e.target.value)}
-                            className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm"
-                            placeholder="Value"
+                            value={dim.name}
+                            onChange={(e) => {
+                              const updated = [...tempDimensions]
+                              updated[dimIndex].name = e.target.value
+                              setTempDimensions(updated)
+                            }}
+                            placeholder="Dimension name"
+                            className="font-medium"
                           />
-                          {dim.values.length > 1 && (
-                            <button
-                              onClick={() => removeDimensionValue(dimIndex, valueIndex)}
-                              className="text-red-600 hover:text-red-800 px-2"
-                            >
-                              ❌
-                            </button>
-                          )}
+                          <Input
+                            type="text"
+                            value={dim.description}
+                            onChange={(e) => {
+                              const updated = [...tempDimensions]
+                              updated[dimIndex].description = e.target.value
+                              setTempDimensions(updated)
+                            }}
+                            placeholder="Dimension description"
+                          />
                         </div>
-                      ))}
-                      <button
-                        onClick={() => addDimensionValue(dimIndex)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        + Add Value
-                      </button>
-                    </div>
-                  </div>
+                        <Button
+                          onClick={() => removeDimension(dimIndex)}
+                          variant="ghost"
+                          size="sm"
+                          className="ml-2 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-xs text-muted-foreground">Values:</label>
+                        {dim.values.map((value, valueIndex) => (
+                          <div key={valueIndex} className="flex items-center space-x-2">
+                            <Input
+                              type="text"
+                              value={value}
+                              onChange={(e) => updateDimensionValue(dimIndex, valueIndex, e.target.value)}
+                              placeholder="Value"
+                              className="flex-1"
+                            />
+                            {dim.values.length > 1 && (
+                              <Button
+                                onClick={() => removeDimensionValue(dimIndex, valueIndex)}
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          onClick={() => addDimensionValue(dimIndex)}
+                          variant="link"
+                          size="sm"
+                          className="p-0 h-auto"
+                        >
+                          + Add Value
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
               
               {/* Add New Dimension */}
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <h4 className="font-medium text-gray-700 mb-3">Add New Dimension</h4>
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={newDimension.name}
-                    onChange={(e) => setNewDimension({...newDimension, name: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    placeholder="Dimension name"
-                  />
-                  <input
-                    type="text"
-                    value={newDimension.description}
-                    onChange={(e) => setNewDimension({...newDimension, description: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    placeholder="Dimension description"
-                  />
-                  <input
-                    type="text"
-                    value={newDimension.values[0]}
-                    onChange={(e) => setNewDimension({...newDimension, values: [e.target.value]})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    placeholder="First value"
-                  />
-                  <button
-                    onClick={addDimension}
-                    className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors"
-                  >
-                    + Add Dimension
-                  </button>
-                </div>
-              </div>
+              <Card className="border-2 border-dashed">
+                <CardContent className="p-4">
+                  <h4 className="font-medium mb-3">Add New Dimension</h4>
+                  <div className="space-y-2">
+                    <Input
+                      type="text"
+                      value={newDimension.name}
+                      onChange={(e) => setNewDimension({...newDimension, name: e.target.value})}
+                      placeholder="Dimension name"
+                    />
+                    <Input
+                      type="text"
+                      value={newDimension.description}
+                      onChange={(e) => setNewDimension({...newDimension, description: e.target.value})}
+                      placeholder="Dimension description"
+                    />
+                    <Input
+                      type="text"
+                      value={newDimension.values[0]}
+                      onChange={(e) => setNewDimension({...newDimension, values: [e.target.value]})}
+                      placeholder="First value"
+                    />
+                    <Button
+                      onClick={addDimension}
+                      variant="default"
+                      className="w-full"
+                    >
+                      + Add Dimension
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
-        </div>
-      )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {activeTab === 'queries' && (
-        <QueryReview projectName={project.name} onUpdate={loadProjectData} />
-      )}
+        <TabsContent value="queries" className="mt-6">
+          <QueryReview projectName={project.name} onUpdate={loadProjectData} />
+        </TabsContent>
 
-      {activeTab === 'tuples' && (
-        <TupleReview projectName={project.name} />
-      )}
+        <TabsContent value="tuples" className="mt-6">
+          <TupleReview projectName={project.name} />
+        </TabsContent>
 
-      {activeTab === 'export' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">📊 Export Dataset</h3>
-          <div className="space-y-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-medium text-blue-900 mb-2">Export Summary</h4>
-              <div className="text-sm text-blue-800">
-                <p>• Approved Queries: {projectData.data_status.approved_queries}</p>
-                <p>• Total Generated: {projectData.data_status.generated_queries}</p>
-                <p>• Ready for export: {projectData.data_status.approved_queries > 0 ? 'Yes' : 'No approved queries yet'}</p>
+        <TabsContent value="export" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Download className="mr-2 h-4 w-4" />
+                Export Dataset
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+              <h4 className="font-medium text-foreground mb-2">Export Summary</h4>
+              <div className="text-sm text-muted-foreground">
+                <p>• Approved Queries: {projectData?.data_status?.approved_queries || 0}</p>
+                <p>• Total Generated: {projectData?.data_status?.generated_queries || 0}</p>
+                <p>• Ready for export: {(projectData?.data_status?.approved_queries || 0) > 0 ? 'Yes' : 'No approved queries yet'}</p>
               </div>
             </div>
             
             <div>
-              <p className="text-gray-600 mb-4">
+              <p className="text-muted-foreground mb-4">
                 Export your approved queries to CSV or JSON format for use in training, evaluation, or analysis.
               </p>
               
               <div className="grid md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">📄 CSV Format</h4>
-                  <p className="text-sm text-gray-600 mb-3">
+                <Card className="p-4">
+                  <h4 className="font-medium text-foreground mb-2 flex items-center">
+                    <File className="mr-2 h-4 w-4" />
+                    CSV Format
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-3">
                     Comma-separated values format, ideal for spreadsheets and data analysis.
                   </p>
-                  <button 
+                  <ButtonWithShortcut 
                     onClick={() => exportData('csv')}
-                    disabled={loading || projectData.data_status.approved_queries === 0}
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={loading || (projectData?.data_status?.approved_queries || 0) === 0}
+                    className="w-full"
+                    variant="default"
+                    shortcut={['⌘', 'C']}
                   >
                     {loading ? 'Exporting...' : 'Export CSV'}
-                  </button>
-                </div>
+                  </ButtonWithShortcut>
+                </Card>
                 
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">📋 JSON Format</h4>
-                  <p className="text-sm text-gray-600 mb-3">
+                <Card className="p-4">
+                  <h4 className="font-medium text-foreground mb-2 flex items-center">
+                    <FileType className="mr-2 h-4 w-4" />
+                    JSON Format
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-3">
                     Structured JSON format, perfect for APIs and programmatic use.
                   </p>
-                  <button 
+                  <ButtonWithShortcut 
                     onClick={() => exportData('json')}
-                    disabled={loading || projectData.data_status.approved_queries === 0}
-                    className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={loading || (projectData?.data_status?.approved_queries || 0) === 0}
+                    className="w-full"
+                    variant="secondary"
+                    shortcut={['⌘', 'J']}
                   >
                     {loading ? 'Exporting...' : 'Export JSON'}
-                  </button>
-                </div>
+                  </ButtonWithShortcut>
+                </Card>
               </div>
             </div>
             
-            {projectData.data_status.approved_queries === 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-yellow-800 text-sm">
-                  ⚠️ No approved queries available for export. Please approve some queries first in the Queries tab.
+            {(projectData?.data_status?.approved_queries || 0) === 0 && (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <p className="text-amber-800 dark:text-amber-200 text-sm flex items-center">
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  No approved queries available for export. Please approve some queries first in the Queries tab.
                 </p>
               </div>
             )}
-          </div>
-        </div>
-      )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
       </div>
     </>
   )

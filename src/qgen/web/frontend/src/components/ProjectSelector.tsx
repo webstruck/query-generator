@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useNotification } from './shared/Notification'
+import { Button } from '@/components/ui/button'
+import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { BarChart3, Brain } from 'lucide-react'
 
 // Base project interface
 interface BaseProject {
@@ -53,6 +63,37 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
   const [creating, setCreating] = useState(false)
   const [templates, setTemplates] = useState<string[]>([])
   const { showNotification, NotificationContainer } = useNotification()
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        keys: ['1'],
+        handler: () => setProjectType('dimension'),
+        description: 'Switch to dimension projects',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['2'],
+        handler: () => setProjectType('rag'),
+        description: 'Switch to RAG projects',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['N'],
+        handler: () => setShowCreateModal(true),
+        description: 'New project',
+        enabled: !showCreateModal
+      },
+      {
+        keys: ['Esc'],
+        handler: () => setShowCreateModal(false),
+        description: 'Close modal',
+        enabled: showCreateModal
+      }
+    ],
+    enabled: true
+  })
 
   useEffect(() => {
     loadProjects()
@@ -135,7 +176,7 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
   }
 
   const getProjectTypeIcon = (type: 'dimension' | 'rag') => {
-    return type === 'dimension' ? '📊' : '🧠'
+    return type === 'dimension' ? <BarChart3 className="h-4 w-4" /> : <Brain className="h-4 w-4" />
   }
 
   const getProjectStatusSummary = (project: Project) => {
@@ -156,218 +197,192 @@ export default function ProjectSelector({ onProjectSelect }: ProjectSelectorProp
       
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">
+        <h1 className="text-3xl font-bold mb-4">
           Welcome to QGen
         </h1>
-        <p className="text-gray-600 max-w-2xl mx-auto">
+        <p className="text-muted-foreground max-w-2xl mx-auto">
           Generate high-quality synthetic queries for your domain using either dimension-based systematic generation or RAG-based content extraction.
         </p>
       </div>
 
       {/* Project Type Toggle */}
       <div className="mb-8 flex justify-center">
-        <div className="bg-white rounded-lg p-1 shadow-sm border border-gray-200">
-          <button 
-            className={`px-6 py-3 rounded-md transition-all flex items-center space-x-3 ${
-              projectType === 'dimension' 
-                ? 'bg-blue-500 text-white shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-            }`}
-            onClick={() => setProjectType('dimension')}
-          >
-            <span className="text-xl">📊</span>
-            <div className="text-left">
-              <div className="font-medium">Dimension-Based</div>
-              <div className="text-xs opacity-75">Systematic query generation</div>
-            </div>
-          </button>
-          <button 
-            className={`px-6 py-3 rounded-md transition-all flex items-center space-x-3 ${
-              projectType === 'rag' 
-                ? 'bg-purple-500 text-white shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-            }`}
-            onClick={() => setProjectType('rag')}
-          >
-            <span className="text-xl">🧠</span>
-            <div className="text-left">
-              <div className="font-medium">RAG-Based</div>
-              <div className="text-xs opacity-75">Content-driven generation</div>
-            </div>
-          </button>
-        </div>
+        <Tabs value={projectType} onValueChange={(value) => setProjectType(value as 'dimension' | 'rag')}>
+          <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsTrigger value="dimension" className="flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4" />
+              <span>Dimension-Based</span>
+            </TabsTrigger>
+            <TabsTrigger value="rag" className="flex items-center space-x-2">
+              <Brain className="h-4 w-4" />
+              <span>RAG-Based</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Projects Section */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 flex items-center space-x-2">
+          <h2 className="text-xl font-semibold flex items-center space-x-2">
             <span>{getProjectTypeIcon(projectType)}</span>
             <span>
               {projectType === 'dimension' ? 'Dimension Projects' : 'RAG Projects'}
             </span>
           </h2>
-          <button
+          <ButtonWithShortcut 
             onClick={() => setShowCreateModal(true)}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${
-              projectType === 'dimension'
-                ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                : 'bg-purple-500 hover:bg-purple-600 text-white'
-            }`}
+            variant={projectType === 'dimension' ? 'default' : 'secondary'}
+            shortcut={['N']}
           >
-            <span>+</span>
+            <span className="mr-2">+</span>
             <span>New Project</span>
-          </button>
+          </ButtonWithShortcut>
         </div>
 
         {/* Projects Grid */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg shadow border border-gray-200 p-6">
-                <div className="animate-pulse space-y-3">
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-                </div>
-              </div>
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <div className="animate-pulse space-y-3">
+                    <div className="h-4 bg-muted rounded w-3/4"></div>
+                    <div className="h-3 bg-muted rounded w-1/2"></div>
+                    <div className="h-3 bg-muted rounded w-2/3"></div>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         ) : projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (
-              <div
+              <Card
                 key={project.name}
+                className="cursor-pointer transition-all hover:shadow-md"
                 onClick={() => onProjectSelect(project)}
-                className={`bg-white rounded-lg shadow border border-gray-200 p-6 cursor-pointer transition-all hover:shadow-md hover:border-gray-300 ${
-                  projectType === 'dimension' ? 'hover:border-blue-300' : 'hover:border-purple-300'
-                }`}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xl">{getProjectTypeIcon(project.type)}</span>
-                    <h3 className="font-semibold text-gray-900">{project.name}</h3>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">{getProjectTypeIcon(project.type)}</span>
+                      <CardTitle className="text-base">{project.name}</CardTitle>
+                    </div>
+                    <Badge variant={projectType === 'dimension' ? 'default' : 'secondary'}>
+                      {project.domain}
+                    </Badge>
                   </div>
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    projectType === 'dimension'
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'bg-purple-50 text-purple-700'
-                  }`}>
-                    {project.domain}
-                  </span>
-                </div>
-                
-                <p className="text-sm text-gray-600 mb-4">
-                  {getProjectStatusSummary(project)}
-                </p>
-                
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{project.path.split('/').pop()}</span>
-                  <span>→</span>
-                </div>
-              </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {getProjectStatusSummary(project)}
+                  </p>
+                  
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{project.path.split('/').pop()}</span>
+                    <span>→</span>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <span className="text-4xl mb-4 block">{getProjectTypeIcon(projectType)}</span>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              No {projectType} projects yet
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Create your first {projectType} project to get started with query generation.
-            </p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                projectType === 'dimension'
-                  ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                  : 'bg-purple-500 hover:bg-purple-600 text-white'
-              }`}
-            >
-              Create Project
-            </button>
-          </div>
+          <Card>
+            <CardContent className="text-center py-12">
+              <span className="text-4xl mb-4 block">{getProjectTypeIcon(projectType)}</span>
+              <h3 className="text-lg font-medium mb-2">
+                No {projectType} projects yet
+              </h3>
+              <p className="text-muted-foreground mb-6">
+                Create your first {projectType} project to get started with query generation.
+              </p>
+              <Button
+                onClick={() => setShowCreateModal(true)}
+                variant={projectType === 'dimension' ? 'default' : 'secondary'}
+              >
+                Create Project
+              </Button>
+            </CardContent>
+          </Card>
         )}
       </div>
 
       {/* Create Project Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
               Create New {projectType === 'dimension' ? 'Dimension' : 'RAG'} Project
-            </h3>
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Project Name
+              </label>
+              <Input
+                type="text"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="Enter project name"
+              />
+            </div>
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="Enter project name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {projectType === 'dimension' ? 'Template' : 'Domain'}
-                </label>
-                <select
-                  value={newProjectDomain}
-                  onChange={(e) => setNewProjectDomain(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                {projectType === 'dimension' ? 'Template' : 'Domain'}
+              </label>
+              <Select value={newProjectDomain} onValueChange={setNewProjectDomain}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select domain" />
+                </SelectTrigger>
+                <SelectContent>
                   {projectType === 'dimension' ? (
                     templates.map((template) => (
-                      <option key={template} value={template}>
+                      <SelectItem key={template} value={template}>
                         {template.charAt(0).toUpperCase() + template.slice(1)}
-                      </option>
+                      </SelectItem>
                     ))
                   ) : (
                     <>
-                      <option value="general">General</option>
-                      <option value="library">Library</option>
-                      <option value="apartment">Apartment</option>
-                      <option value="software">Software</option>
-                      <option value="healthcare">Healthcare</option>
+                      <SelectItem value="general">General</SelectItem>
+                      <SelectItem value="library">Library</SelectItem>
+                      <SelectItem value="apartment">Apartment</SelectItem>
+                      <SelectItem value="software">Software</SelectItem>
+                      <SelectItem value="healthcare">Healthcare</SelectItem>
                     </>
                   )}
-                </select>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-end space-x-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowCreateModal(false)
-                  setNewProjectName('')
-                  setNewProjectDomain(projectType === 'dimension' ? (templates[0] || 'general') : 'general')
-                }}
-                className="px-4 py-2 text-gray-700 hover:text-gray-900"
-                disabled={creating}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={createProject}
-                disabled={creating || !newProjectName.trim()}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  projectType === 'dimension'
-                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                    : 'bg-purple-500 hover:bg-purple-600 text-white'
-                }`}
-              >
-                {creating ? 'Creating...' : 'Create Project'}
-              </button>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        </div>
-      )}
+          
+          <div className="flex items-center justify-end space-x-3 mt-6">
+            <ButtonWithShortcut
+              variant="outline"
+              onClick={() => {
+                setShowCreateModal(false)
+                setNewProjectName('')
+                setNewProjectDomain(projectType === 'dimension' ? (templates[0] || 'general') : 'general')
+              }}
+              disabled={creating}
+              shortcut="cancel"
+            >
+              Cancel
+            </ButtonWithShortcut>
+            <ButtonWithShortcut
+              onClick={createProject}
+              disabled={creating || !newProjectName.trim()}
+              variant={projectType === 'dimension' ? 'default' : 'secondary'}
+              shortcut="save"
+            >
+              {creating ? 'Creating...' : 'Create Project'}
+            </ButtonWithShortcut>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

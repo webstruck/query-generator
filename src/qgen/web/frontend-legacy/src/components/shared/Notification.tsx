@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, XCircle, Info, X } from 'lucide-react'
-import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
 
 interface NotificationProps {
   message: string
@@ -37,13 +35,13 @@ export default function Notification({ message, type, onClose, duration = 4000 }
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="h-5 w-5" />
+        return '✅'
       case 'error':
-        return <XCircle className="h-5 w-5" />
+        return '❌'
       case 'info':
-        return <Info className="h-5 w-5" />
+        return 'ℹ️'
       default:
-        return <Info className="h-5 w-5" />
+        return 'ℹ️'
     }
   }
 
@@ -54,19 +52,17 @@ export default function Notification({ message, type, onClose, duration = 4000 }
       } ${getNotificationStyles()}`}
     >
       <div className="flex items-center space-x-3">
-        <span>{getIcon()}</span>
+        <span className="text-lg">{getIcon()}</span>
         <span className="font-medium">{message}</span>
-        <ButtonWithShortcut
+        <button
           onClick={() => {
             setIsVisible(false)
             setTimeout(onClose, 300)
           }}
-          className="ml-4 text-gray-500 hover:text-gray-700 bg-transparent border-none p-0 h-auto"
-          shortcut="close"
-          showShortcut={false}
+          className="ml-4 text-gray-500 hover:text-gray-700"
         >
-          <X className="h-4 w-4" />
-        </ButtonWithShortcut>
+          ✕
+        </button>
       </div>
     </div>
   )

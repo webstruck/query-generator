@@ -1480,15 +1480,15 @@ async def get_rag_operation_status(project_name: str, operation: str):
 
 # Serve static files (React build) in production
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
-frontend_shadcn_dist = Path(__file__).parent / "frontend-shadcn" / "dist"
+frontend_legacy_dist = Path(__file__).parent / "frontend-legacy" / "dist"
 
-# Serve shadcn version at /shadcn route
-if frontend_shadcn_dist.exists():
-    app.mount("/shadcn", StaticFiles(directory=str(frontend_shadcn_dist), html=True), name="shadcn")
-
-# Serve original version at root
+# Serve default (shadcn) version at root
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+
+# Serve legacy version at /legacy route for reference
+if frontend_legacy_dist.exists():
+    app.mount("/legacy", StaticFiles(directory=str(frontend_legacy_dist), html=True), name="legacy")
 
 if __name__ == "__main__":
     import uvicorn
