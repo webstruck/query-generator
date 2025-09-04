@@ -3,15 +3,17 @@ import { type RAGProject } from '../ProjectSelector'
 import { useNotification } from '../shared/Notification'
 import { SingleQueryReview } from './SingleQueryReview'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ButtonWithShortcut } from '@/components/ui/button-with-shortcut'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { LayoutDashboard, Database, Lightbulb, FileText, Download, Settings, AlertTriangle, File, Search, Rocket, Upload } from 'lucide-react'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface RAGProjectDashboardProps {
   project: RAGProject
-  onBack: () => void
+  onBack?: () => void
 }
 
 interface OperationStatus {
@@ -113,14 +115,12 @@ const SimpleFileUpload: React.FC<{ onFileUpload: (files: FileList) => void; acce
 }
 
 
-export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ project, onBack: _onBack }) => {
+export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ project }) => {
   const { showNotification, NotificationContainer } = useNotification()
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
-  const [_projectData, setProjectData] = useState<RAGProject>(project)
   const [operationStatus, setOperationStatus] = useState<OperationStatus | null>(null)
   const [provider, setProvider] = useState<string>('')
   const [providers, setProviders] = useState<{available: string[], auto_detected: string}>({available: [], auto_detected: ''})
-  const [_loading, _setLoading] = useState(false)
   
   // Data states
   const [chunkFiles, setChunkFiles] = useState<ChunkFile[]>([])
@@ -145,8 +145,8 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const startQueryReview = () => handleStartSingleQueryReview()
   const exportQueries = (format: 'json' | 'csv') => handleExport(format)
   const selectAllFacts = () => {
-    const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
-    const allFactIds = new Set(currentFacts?.map(fact => fact.fact_id) || [])
+    const currentFacts = factStage === 'generated' ? facts.generated || [] : facts.approved || []
+    const allFactIds = new Set(currentFacts.map(fact => fact.fact_id))
     setSelectedFacts(allFactIds)
   }
   const selectNoneFacts = () => setSelectedFacts(new Set())
@@ -236,8 +236,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       // Load project details
       const projectResponse = await fetch(`/api/rag-projects/${project.name}`)
       if (projectResponse.ok) {
-        const projectData = await projectResponse.json()
-        setProjectData(projectData)
+        // Project data loaded successfully
       }
 
       // Load chunks info
@@ -555,7 +554,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   )
 
   const renderFactsStage = () => {
-    const currentFacts = factStage === 'generated' ? facts.generated : facts.approved
+    const currentFacts = factStage === 'generated' ? facts.generated || [] : facts.approved || []
 
 
     return (
@@ -635,7 +634,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                     <div className="flex space-x-2">
                       <ButtonWithShortcut
                         onClick={handleApproveFacts}
-                        disabled={_loading}
+                        disabled={!!operationStatus}
                         variant="default"
                         shortcut={['A']}
                       >
@@ -974,39 +973,40 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       )}
       
       <div>
-        {/* Tab Navigation */}
-        <div className="border-b border-border mb-6">
-          <nav className="-mb-px flex space-x-8">
-            {[
-              { id: 'overview', name: <><LayoutDashboard className="inline h-4 w-4 mr-1" />Overview</>, count: null },
-              { id: 'chunks', name: <><Database className="inline h-4 w-4 mr-1" />Chunks</>, count: getChunksCount() },
-              { id: 'facts', name: <><Lightbulb className="inline h-4 w-4 mr-1" />Facts</>, count: getGeneratedFactsCount() },
-              { id: 'queries', name: <><FileText className="inline h-4 w-4 mr-1" />Queries</>, count: getGeneratedQueriesCount() },
-              { id: 'export', name: <><Download className="inline h-4 w-4 mr-1" />Export</>, count: null }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as ActiveTab)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground'
-                }`}
-              >
-                {tab.name}
-                {tab.count !== null && (
-                  <span className="ml-1 bg-muted text-muted-foreground py-0.5 px-2 rounded-full text-xs">
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ActiveTab)} className="w-full">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="overview" className="flex items-center gap-2">
+              <LayoutDashboard className="h-4 w-4" />
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="chunks" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Chunks
+              <Badge variant="secondary" className="ml-1">
+                {getChunksCount()}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="facts" className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4" />
+              Facts
+              <Badge variant="secondary" className="ml-1">
+                {getGeneratedFactsCount()}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="queries" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Queries
+              <Badge variant="secondary" className="ml-1">
+                {getGeneratedQueriesCount()}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="export" className="flex items-center gap-2">
+              <Download className="h-4 w-4" />
+              Export
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
+          <TabsContent value="overview" className="space-y-6 mt-6">
             {/* Provider Selection and Stats */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Provider Settings */}
@@ -1150,13 +1150,24 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                 </div>
               </div>
             </Card>
-          </div>
-        )}
+          </TabsContent>
 
-        {activeTab === 'chunks' && renderChunksStage()}
-        {activeTab === 'facts' && renderFactsStage()}
-        {activeTab === 'queries' && renderQueriesStage()}
-        {activeTab === 'export' && renderExportStage()}
+          <TabsContent value="chunks" className="space-y-6 mt-6">
+            {renderChunksStage()}
+          </TabsContent>
+
+          <TabsContent value="facts" className="space-y-6 mt-6">
+            {renderFactsStage()}
+          </TabsContent>
+
+          <TabsContent value="queries" className="space-y-6 mt-6">
+            {renderQueriesStage()}
+          </TabsContent>
+
+          <TabsContent value="export" className="space-y-6 mt-6">
+            {renderExportStage()}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Single Query Review Modal */}
