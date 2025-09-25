@@ -205,9 +205,8 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
   // Keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: [
-      // Selection
-      { keys: ['⌘', 'A'], handler: selectAll, description: 'Select all queries' },
-      { keys: ['⌘', 'D'], handler: selectNone, description: 'Select none' },
+      // Selection - toggle between all and none
+      { keys: ['⌘', '⇧', 'A'], handler: selectedQueries.size === filteredQueries.length ? selectNone : selectAll, description: 'Toggle select all/none' },
       
       // Bulk actions (when queries selected)
       { keys: ['A'], handler: bulkApprove, description: 'Approve selected', enabled: selectedQueries.size > 0 },
@@ -215,7 +214,7 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
       { keys: ['E'], handler: bulkEdit, description: 'Edit selected', enabled: selectedQueries.size === 1 },
       
       // Edit mode
-      { keys: ['⌘', 'S'], handler: saveEdit, description: 'Save edit', enabled: isEditing },
+      { keys: ['^', 'S'], handler: saveEdit, description: 'Save edit', enabled: isEditing },
       { keys: ['Esc'], handler: cancelEdit, description: 'Cancel edit', enabled: isEditing }
     ],
     enabled: true
@@ -233,20 +232,12 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
             <div className="flex items-center space-x-4">
               <div className="flex space-x-2">
                 <ButtonWithShortcut
-                  onClick={selectAll}
+                  onClick={selectedQueries.size === filteredQueries.length ? selectNone : selectAll}
                   variant="outline"
                   size="sm"
-                  shortcut={['⌘', 'A']}
+                  shortcut={['⌘', '⇧', 'A']}
                 >
-                  All
-                </ButtonWithShortcut>
-                <ButtonWithShortcut
-                  onClick={selectNone}
-                  variant="outline"
-                  size="sm"
-                  shortcut={['⌘', 'D']}
-                >
-                  None
+                  {selectedQueries.size === filteredQueries.length ? 'None' : 'All'}
                 </ButtonWithShortcut>
               </div>
               
@@ -258,40 +249,37 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
               </span>
             </div>
 
-          {/* Action Buttons */}
-          {selectedQueries.size > 0 && (
-            <div className="flex space-x-2">
-              <ButtonWithShortcut
-                onClick={bulkApprove}
-                disabled={loading}
-                variant="default"
-                shortcut={['A']}
-              >
-                Approve
-              </ButtonWithShortcut>
-              <ButtonWithShortcut
-                onClick={bulkReject}
-                disabled={loading}
-                variant="destructive"
-                shortcut={['R']}
-              >
-                Reject
-              </ButtonWithShortcut>
-              {selectedQueries.size === 1 && (
-                <ButtonWithShortcut
-                  onClick={() => {
-                    const queryId = Array.from(selectedQueries)[0]
-                    const query = queries.find(q => q.id === queryId)
-                    if (query) startEdit(query)
-                  }}
-                  variant="secondary"
-                  shortcut={['E']}
-                >
-                  Edit
-                </ButtonWithShortcut>
-              )}
-            </div>
-          )}
+          {/* Action Buttons - Always visible */}
+          <div className="flex space-x-2">
+            <ButtonWithShortcut
+              onClick={bulkApprove}
+              disabled={loading || selectedQueries.size === 0}
+              variant="default"
+              shortcut={['A']}
+            >
+              Approve
+            </ButtonWithShortcut>
+            <ButtonWithShortcut
+              onClick={bulkReject}
+              disabled={loading || selectedQueries.size === 0}
+              variant="destructive"
+              shortcut={['R']}
+            >
+              Reject
+            </ButtonWithShortcut>
+            <ButtonWithShortcut
+              onClick={() => {
+                const queryId = Array.from(selectedQueries)[0]
+                const query = queries.find(q => q.id === queryId)
+                if (query) startEdit(query)
+              }}
+              disabled={selectedQueries.size !== 1}
+              variant="secondary"
+              shortcut={['E']}
+            >
+              Edit
+            </ButtonWithShortcut>
+          </div>
 
           {/* Filter */}
           <Select value={filter} onValueChange={setFilter}>
@@ -373,7 +361,7 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
                           <ButtonWithShortcut
                             onClick={saveEdit}
                             variant="default"
-                            shortcut={['⌘', 'S']}
+                            shortcut={['^', 'S']}
                           >
                             Save
                           </ButtonWithShortcut>
@@ -401,46 +389,6 @@ export default function QueryReview({ projectName, onUpdate }: QueryReviewProps)
                             ))}
                           </div>
                         </div>
-                        
-                        {/* Individual Action Buttons */}
-                        {!isSelected && (
-                          <div className="flex space-x-2 mt-3">
-                            <ButtonWithShortcut
-                              onClick={async () => {
-                                await updateQueryStatus(query.id, 'approved')
-                                onUpdate?.()
-                              }}
-                              variant="secondary"
-                              size="sm"
-                              shortcut={['A']}
-                              showShortcut={false}
-                            >
-                              Approve
-                            </ButtonWithShortcut>
-                            <ButtonWithShortcut
-                              onClick={async () => {
-                                await updateQueryStatus(query.id, 'rejected')
-                                onUpdate?.()
-                              }}
-                              variant="outline"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              shortcut={['R']}
-                              showShortcut={false}
-                            >
-                              Reject
-                            </ButtonWithShortcut>
-                            <ButtonWithShortcut
-                              onClick={() => startEdit(query)}
-                              variant="outline"
-                              size="sm"
-                              shortcut={['E']}
-                              showShortcut={false}
-                            >
-                              Edit
-                            </ButtonWithShortcut>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>

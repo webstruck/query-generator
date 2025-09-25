@@ -42,7 +42,7 @@ export const KEYBOARD_SHORTCUTS = {
   approve: ['A'],
   reject: ['R'],
   edit: ['E'],
-  save: ['⌘', 'S'],
+  save: ['^', 'S'],
   delete: ['⌫'],
   
   // Navigation

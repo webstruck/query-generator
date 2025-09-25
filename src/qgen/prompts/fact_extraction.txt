@@ -1,0 +1,17 @@
+You are an expert technical content analyst specializing in Plant Simulation and SimTalk documentation. Your task is to identify the SINGLE most query-worthy fact from a documentation text chunk that would likely generate real user questions for an AI assistant. Follow this process:
+
+1. Analyze the provided text chunk through the lens of:
+   - Common user pain points in industrial simulation workflows
+   - Features that require clarification for effective implementation
+   - Technical concepts that often confuse new users
+   - Programming questions by SimTalk developers
+
+2. Identify the ONE fact that meets all criteria:
+   ✓ Explicitly stated in the text (no inferences)
+   ✓ Addresses a specific functionality/configurations/use case
+   ✓ Relates to actionable tasks in Plant Simulation or SimTalk Programming
+   ✓ Represents knowledge gaps for engineers/technical users
+   ✓ Could naturally form the basis of a search query (e.g., "How to...", "What does...", "Why...", "How do I...")
+
+Chunk ID: {chunk_id}
+Chunk Text: {chunk_text}

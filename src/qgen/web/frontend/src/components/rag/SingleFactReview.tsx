@@ -1,39 +1,29 @@
 import React, { useState, useCallback, useMemo } from 'react'
-import { Edit, FileText, Link, Filter } from 'lucide-react'
+import { Edit, FileText, TrendingUp, Filter } from 'lucide-react'
 import { useNotification } from '../shared/Notification'
 import { ButtonWithShortcut } from '../ui/button-with-shortcut'
 import { useKeyboardShortcuts } from '../../hooks/use-keyboard-shortcuts'
 
-interface HighlightedChunk {
+interface Fact {
+  fact_id: string
   chunk_id: string
-  chunk_text: string
-  highlighted_html: string
-  source_document: string
-  highlight_source: 'original_fact' | 'answer_fact' | 'none'
-  chunk_index: number
-}
-
-interface EnhancedRAGQuery {
-  query_id: string
-  query_text: string
-  answer_fact: string
-  source_chunk_ids: string[]
-  difficulty?: string
-  realism_rating?: number
-  highlighted_chunks?: HighlightedChunk[]
+  fact_text: string
+  extraction_confidence: number
+  source_text?: string
+  highlighted_source?: string
   status?: string  // "pending", "approved", "rejected"
 }
 
-interface ReviewResult {
-  queryId: string
+interface FactReviewResult {
+  factId: string
   action: ReviewAction
-  editedQuery?: Partial<EnhancedRAGQuery>
+  editedFact?: Partial<Fact>
 }
 
-interface SingleQueryReviewProps {
-  queries: EnhancedRAGQuery[]
+interface SingleFactReviewProps {
+  facts: Fact[]
   projectName: string
-  onComplete: (approvedQueries: string[], allReviewResults: ReviewResult[]) => void
+  onComplete: (approvedFacts: string[], allReviewResults: FactReviewResult[]) => void
   onCancel: () => void
 }
 
@@ -41,15 +31,14 @@ type ReviewAction = 'approved' | 'rejected' | 'edited' | 'skipped'
 type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'skipped'
 
 interface ReviewState {
-  [queryId: string]: {
+  [factId: string]: {
     action: ReviewAction
-    editedQuery?: Partial<EnhancedRAGQuery>
+    editedFact?: Partial<Fact>
   }
 }
 
-export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
-  queries,
-  projectName: _projectName,
+export const SingleFactReview: React.FC<SingleFactReviewProps> = ({
+  facts,
   onComplete,
   onCancel
 }) => {
@@ -57,16 +46,16 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0)
   const [reviewState, setReviewState] = useState<ReviewState>({})
   const [isEditing, setIsEditing] = useState(false)
-  const [editForm, setEditForm] = useState<Partial<EnhancedRAGQuery>>({})
+  const [editForm, setEditForm] = useState<Partial<Fact>>({})
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
-  // Filter queries based on status filter
-  const filteredQueries = useMemo(() => {
-    if (statusFilter === 'all') return queries
+  // Filter facts based on status filter
+  const filteredFacts = useMemo(() => {
+    if (statusFilter === 'all') return facts
     
-    return queries.filter(query => {
-      const dbStatus = query.status || 'pending'
-      const sessionReview = reviewState[query.query_id]
+    return facts.filter(fact => {
+      const dbStatus = fact.status || 'pending'
+      const sessionReview = reviewState[fact.fact_id]
       
       if (sessionReview) {
         // Use session review action for filtering
@@ -76,19 +65,19 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       // Use database status for filtering
       return dbStatus === statusFilter
     })
-  }, [queries, statusFilter, reviewState])
+  }, [facts, statusFilter, reviewState])
 
-  const currentQuery = filteredQueries[currentIndex]
-  const progress = filteredQueries.length > 0 ? ((currentIndex + 1) / filteredQueries.length) * 100 : 0
-  const currentReview = reviewState[currentQuery?.query_id]
+  const currentFact = filteredFacts[currentIndex]
+  const progress = filteredFacts.length > 0 ? ((currentIndex + 1) / filteredFacts.length) * 100 : 0
+  const currentReview = reviewState[currentFact?.fact_id]
 
   // Navigation functions
   const goToNext = useCallback(() => {
-    if (currentIndex < filteredQueries.length - 1) {
+    if (currentIndex < filteredFacts.length - 1) {
       setCurrentIndex(currentIndex + 1)
       setIsEditing(false)
     }
-  }, [currentIndex, filteredQueries.length])
+  }, [currentIndex, filteredFacts.length])
 
   const goToPrevious = useCallback(() => {
     if (currentIndex > 0) {
@@ -108,52 +97,50 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   const handleApprove = useCallback(() => {
     setReviewState(prev => ({
       ...prev,
-      [currentQuery.query_id]: { action: 'approved' }
+      [currentFact.fact_id]: { action: 'approved' }
     }))
-    showNotification('Query approved!', 'success')
+    showNotification('Fact approved!', 'success')
     goToNext()
-  }, [currentQuery, goToNext, showNotification])
+  }, [currentFact, goToNext, showNotification])
 
   const handleReject = useCallback(() => {
     setReviewState(prev => ({
       ...prev,
-      [currentQuery.query_id]: { action: 'rejected' }
+      [currentFact.fact_id]: { action: 'rejected' }
     }))
-    showNotification('Query rejected', 'info')
+    showNotification('Fact rejected', 'info')
     goToNext()
-  }, [currentQuery, goToNext, showNotification])
+  }, [currentFact, goToNext, showNotification])
 
   const handleSkip = useCallback(() => {
     setReviewState(prev => ({
       ...prev,
-      [currentQuery.query_id]: { action: 'skipped' }
+      [currentFact.fact_id]: { action: 'skipped' }
     }))
-    showNotification('Query skipped', 'info')
+    showNotification('Fact skipped', 'info')
     goToNext()
-  }, [currentQuery, goToNext, showNotification])
+  }, [currentFact, goToNext, showNotification])
 
   const handleEdit = useCallback(() => {
     setEditForm({
-      query_text: currentQuery.query_text,
-      answer_fact: currentQuery.answer_fact,
-      difficulty: currentQuery.difficulty,
-      realism_rating: currentQuery.realism_rating
+      fact_text: currentFact.fact_text,
+      extraction_confidence: currentFact.extraction_confidence
     })
     setIsEditing(true)
-  }, [currentQuery])
+  }, [currentFact])
 
   const handleSaveEdit = useCallback(() => {
     setReviewState(prev => ({
       ...prev,
-      [currentQuery.query_id]: { 
+      [currentFact.fact_id]: { 
         action: 'edited',
-        editedQuery: editForm
+        editedFact: editForm
       }
     }))
     setIsEditing(false)
-    showNotification('Query edited and approved!', 'success')
+    showNotification('Fact edited and approved!', 'success')
     goToNext()
-  }, [currentQuery, editForm, goToNext, showNotification])
+  }, [currentFact, editForm, goToNext, showNotification])
 
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false)
@@ -161,18 +148,18 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
   }, [])
 
   const handleQuit = useCallback(() => {
-    const approvedQueries = Object.entries(reviewState)
+    const approvedFacts = Object.entries(reviewState)
       .filter(([, review]) => review.action === 'approved' || review.action === 'edited')
-      .map(([queryId]) => queryId)
+      .map(([factId]) => factId)
 
-    const allReviewResults = Object.entries(reviewState).map(([queryId, review]) => ({
-      queryId,
+    const allReviewResults = Object.entries(reviewState).map(([factId, review]) => ({
+      factId,
       action: review.action,
-      editedQuery: review.editedQuery
+      editedFact: review.editedFact
     }))
 
-    if (approvedQueries.length > 0 || allReviewResults.length > 0) {
-      onComplete(approvedQueries, allReviewResults)
+    if (approvedFacts.length > 0 || allReviewResults.length > 0) {
+      onComplete(approvedFacts, allReviewResults)
     } else {
       onCancel()
     }
@@ -184,25 +171,25 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       {
         keys: ['A'],
         handler: () => handleApprove(),
-        description: 'Approve query',
+        description: 'Approve fact',
         enabled: !isEditing
       },
       {
         keys: ['R'],
         handler: () => handleReject(),
-        description: 'Reject query',
+        description: 'Reject fact',
         enabled: !isEditing
       },
       {
         keys: ['E'],
         handler: () => handleEdit(),
-        description: 'Edit query',
+        description: 'Edit fact',
         enabled: !isEditing
       },
       {
         keys: ['S'],
         handler: () => handleSkip(),
-        description: 'Skip query',
+        description: 'Skip fact',
         enabled: !isEditing
       },
       {
@@ -219,28 +206,28 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
       {
         keys: ['←'],
         handler: () => goToPrevious(),
-        description: 'Previous query',
+        description: 'Previous fact',
         enabled: !isEditing
       },
       {
         keys: ['→'],
         handler: () => goToNext(),
-        description: 'Next query',
+        description: 'Next fact',
         enabled: !isEditing
       }
     ],
     enabled: true
   })
 
-  if (!currentQuery || filteredQueries.length === 0) {
+  if (!currentFact || filteredFacts.length === 0) {
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
         <div className="bg-background rounded-lg shadow-2xl w-96 p-6 border">
-          <h2 className="text-lg font-semibold mb-4">No Queries Found</h2>
+          <h2 className="text-lg font-semibold mb-4">No Facts Found</h2>
           <p className="text-muted-foreground mb-4">
             {statusFilter === 'all' 
-              ? 'No queries available for review.'
-              : `No queries found with status "${statusFilter}".`
+              ? 'No facts available for review.'
+              : `No facts found with status "${statusFilter}".`
             }
           </p>
           <div className="flex space-x-3">
@@ -256,20 +243,19 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
     )
   }
 
-  const getDifficultyColor = (difficulty?: string) => {
-    switch (difficulty) {
-      case 'multi-hop':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300'
-      case 'adversarial':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
-      default:
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 0.8) {
+      return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+    } else if (confidence >= 0.6) {
+      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300'
+    } else {
+      return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
     }
   }
 
   const getReviewStatusIndicator = () => {
     // Show current database status first, then local review status
-    const dbStatus = currentQuery?.status
+    const dbStatus = currentFact?.status
     const localReview = currentReview
     
     if (localReview) {
@@ -315,7 +301,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
         <div className="bg-primary text-primary-foreground p-4 rounded-t-lg">
           <div className="flex justify-between items-center mb-2">
             <div className="flex items-center space-x-4">
-              <h2 className="text-lg font-semibold">Query Review</h2>
+              <h2 className="text-lg font-semibold">Fact Review</h2>
               
               {/* Status Filter Dropdown */}
               <div className="flex items-center space-x-2">
@@ -325,10 +311,10 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                   onChange={(e) => handleFilterChange(e.target.value as StatusFilter)}
                   className="bg-primary-foreground/10 text-primary-foreground border border-primary-foreground/20 rounded px-2 py-1 text-sm"
                 >
-                  <option value="all">All ({queries.length})</option>
-                  <option value="pending">Pending ({queries.filter(q => (q.status || 'pending') === 'pending').length})</option>
-                  <option value="approved">Approved ({queries.filter(q => (q.status || 'pending') === 'approved').length})</option>
-                  <option value="rejected">Rejected ({queries.filter(q => (q.status || 'pending') === 'rejected').length})</option>
+                  <option value="all">All ({facts.length})</option>
+                  <option value="pending">Pending ({facts.filter(f => (f.status || 'pending') === 'pending').length})</option>
+                  <option value="approved">Approved ({facts.filter(f => (f.status || 'pending') === 'approved').length})</option>
+                  <option value="rejected">Rejected ({facts.filter(f => (f.status || 'pending') === 'rejected').length})</option>
                   <option value="skipped">Skipped ({Object.values(reviewState).filter(r => r.action === 'skipped').length})</option>
                 </select>
               </div>
@@ -336,7 +322,7 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
             
             <div className="flex items-center space-x-3">
               <span className="text-sm">
-                Query {currentIndex + 1} of {filteredQueries.length}
+                Fact {currentIndex + 1} of {filteredFacts.length}
                 {statusFilter !== 'all' && (
                   <span className="text-primary-foreground/80 ml-1">
                     (filtered)
@@ -373,64 +359,35 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
         {/* Main Content Area */}
         <div className="flex-1 overflow-auto p-4 space-y-4">
           
-          {/* Query Details Panel */}
+          {/* Fact Details Panel */}
           {isEditing ? (
             <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg dark:bg-yellow-900/20 dark:border-yellow-600">
               <h3 className="font-semibold text-yellow-800 dark:text-yellow-300 mb-4 flex items-center gap-2">
                 <Edit className="h-4 w-4" />
-                Editing Query
+                Editing Fact
               </h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Query Text</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Fact Text</label>
                   <textarea
-                    value={editForm.query_text || ''}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, query_text: e.target.value }))}
+                    value={editForm.fact_text || ''}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, fact_text: e.target.value }))}
                     className="w-full p-3 border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-ring bg-background text-foreground"
-                    rows={3}
+                    rows={4}
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Answer Fact</label>
-                  <textarea
-                    value={editForm.answer_fact || ''}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, answer_fact: e.target.value }))}
-                    className="w-full p-3 border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-ring bg-background text-foreground"
-                    rows={2}
+                  <label className="block text-sm font-medium text-foreground mb-2">Extraction Confidence (0-1)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={editForm.extraction_confidence || ''}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, extraction_confidence: parseFloat(e.target.value) }))}
+                    className="w-full p-2 border border-border rounded focus:ring-2 focus:ring-ring bg-background text-foreground"
                   />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {currentQuery.difficulty && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">Difficulty</label>
-                      <select
-                        value={editForm.difficulty || ''}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, difficulty: e.target.value }))}
-                        className="w-full p-2 border border-border rounded focus:ring-2 focus:ring-ring bg-background text-foreground"
-                      >
-                        <option value="standard">Standard</option>
-                        <option value="adversarial">Adversarial</option>
-                        <option value="multi-hop">Multi-hop</option>
-                      </select>
-                    </div>
-                  )}
-                  
-                  {currentQuery.realism_rating && (
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">Realism Score (1-5)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="5"
-                        step="0.1"
-                        value={editForm.realism_rating || ''}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, realism_rating: parseFloat(e.target.value) }))}
-                        className="w-full p-2 border border-border rounded focus:ring-2 focus:ring-ring bg-background text-foreground"
-                      />
-                    </div>
-                  )}
                 </div>
                 
                 <div className="flex space-x-3 pt-4">
@@ -454,19 +411,19 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
             </div>
           ) : (
             <>
-              {/* Status Warning for already approved/rejected queries */}
-              {currentQuery.status && currentQuery.status !== 'pending' && !currentReview && (
+              {/* Status Warning for already approved/rejected facts */}
+              {currentFact.status && currentFact.status !== 'pending' && !currentReview && (
                 <div className={`border-l-4 p-4 rounded-lg ${
-                  currentQuery.status === 'approved' 
+                  currentFact.status === 'approved' 
                     ? 'bg-green-50 border-green-500 dark:bg-green-900/20 dark:border-green-600' 
                     : 'bg-red-50 border-red-500 dark:bg-red-900/20 dark:border-red-600'
                 }`}>
                   <p className={`text-sm font-medium ${
-                    currentQuery.status === 'approved' 
+                    currentFact.status === 'approved' 
                       ? 'text-green-800 dark:text-green-300' 
                       : 'text-red-800 dark:text-red-300'
                   }`}>
-                    ⚠️ This query has already been {currentQuery.status}. Any changes you make will override the previous decision.
+                    ⚠️ This fact has already been {currentFact.status}. Any changes you make will override the previous decision.
                   </p>
                 </div>
               )}
@@ -474,35 +431,26 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
               <div className="bg-gradient-to-r from-primary/10 to-primary/5 border-l-4 border-primary p-4 rounded-lg">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div>
-                    <h3 className="font-semibold text-foreground mb-3">Query</h3>
-                    <p className="text-foreground text-lg leading-relaxed">{currentQuery.query_text}</p>
+                    <h3 className="font-semibold text-foreground mb-3">Extracted Fact</h3>
+                    <p className="text-foreground text-lg leading-relaxed">{currentFact.fact_text}</p>
                   </div>
                   <div className="space-y-4">
-                    <div>
-                      <span className="text-sm font-medium text-muted-foreground">Answer Fact:</span>
-                      <p className="text-foreground mt-1">{currentQuery.answer_fact}</p>
-                    </div>
-                    
                     <div className="flex flex-wrap gap-4">
-                      {currentQuery.difficulty && (
-                        <div>
-                          <span className="text-sm font-medium text-muted-foreground">Difficulty:</span>
-                          <span className={`ml-2 px-3 py-1 rounded text-xs font-medium ${getDifficultyColor(currentQuery.difficulty)}`}>
-                            {currentQuery.difficulty}
-                          </span>
-                        </div>
-                      )}
+                      <div>
+                        <span className="text-sm font-medium text-muted-foreground">Confidence:</span>
+                        <span className={`ml-2 px-3 py-1 rounded text-xs font-medium ${getConfidenceColor(currentFact.extraction_confidence)}`}>
+                          {(currentFact.extraction_confidence * 100).toFixed(1)}%
+                        </span>
+                      </div>
                       
-                      {currentQuery.realism_rating && (
-                        <div>
-                          <span className="text-sm font-medium text-muted-foreground">Realism Score:</span>
-                          <span className="ml-2 font-semibold text-primary">{currentQuery.realism_rating}/5</span>
-                        </div>
-                      )}
+                      <div>
+                        <span className="text-sm font-medium text-muted-foreground">Chunk ID:</span>
+                        <span className="ml-2 font-mono text-sm text-primary">{currentFact.chunk_id.slice(0, 8)}...</span>
+                      </div>
                     </div>
                     
                     <div className="text-xs text-muted-foreground">
-                      Query ID: {currentQuery.query_id.slice(0, 12)}...
+                      Fact ID: {currentFact.fact_id.slice(0, 12)}...
                     </div>
                   </div>
                 </div>
@@ -510,59 +458,39 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
             </>
           )}
 
-          {/* Source Chunks with Highlighting */}
-          {currentQuery.highlighted_chunks && currentQuery.highlighted_chunks.length > 0 && (
+          {/* Source Text */}
+          {currentFact.source_text && (
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
                 <FileText className="h-4 w-4" />
                 Source Context
-                {currentQuery.highlighted_chunks.length > 1 && (
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
-                    ({currentQuery.highlighted_chunks.length} chunks)
-                  </span>
-                )}
               </h3>
               
-              <div className="space-y-4">
-                {currentQuery.highlighted_chunks.map((chunk, idx) => (
-                  <div key={chunk.chunk_id} className="border border-border rounded-lg overflow-hidden shadow-sm">
-                    <div className="bg-muted px-4 py-3 border-b border-border flex justify-between items-center">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-sm font-medium text-foreground">
-                          {chunk.source_document}
-                        </span>
-                        {currentQuery.highlighted_chunks!.length > 1 && (
-                          <span className="bg-primary/20 text-primary px-2 py-1 rounded-full text-xs font-medium">
-                            Chunk {idx + 1}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        Highlighting: {chunk.highlight_source.replace('_', ' ')}
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      <div 
-                        className="text-foreground leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: chunk.highlighted_html }}
-                      />
-                    </div>
+              <div className="border border-border rounded-lg overflow-hidden shadow-sm">
+                <div className="bg-muted px-4 py-3 border-b border-border flex justify-between items-center">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-sm font-medium text-foreground">
+                      Original Source Text
+                    </span>
+                    <span className="bg-primary/20 text-primary px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" />
+                      Confidence: {(currentFact.extraction_confidence * 100).toFixed(1)}%
+                    </span>
                   </div>
-                ))}
-              </div>
-
-              {/* Multi-hop Indicator */}
-              {currentQuery.highlighted_chunks.length > 1 && (
-                <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 dark:bg-purple-900/20 dark:border-purple-600">
-                  <div className="flex items-center space-x-2">
-                    <Link className="h-4 w-4 text-purple-600" />
-                    <span className="text-purple-800 dark:text-purple-300 font-medium">Multi-hop Query</span>
-                  </div>
-                  <p className="text-purple-700 dark:text-purple-400 text-sm mt-2">
-                    This query requires information from {currentQuery.highlighted_chunks.length} different chunks to be answered completely.
-                  </p>
                 </div>
-              )}
+                <div className="p-4">
+                  {currentFact.highlighted_source ? (
+                    <div 
+                      className="text-foreground leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: currentFact.highlighted_source }}
+                    />
+                  ) : (
+                    <div className="text-foreground leading-relaxed">
+                      {currentFact.source_text}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -584,11 +512,11 @@ export const SingleQueryReview: React.FC<SingleQueryReviewProps> = ({
                 Previous
               </ButtonWithShortcut>
               <span className="text-sm text-muted-foreground px-2">
-                {currentIndex + 1} of {filteredQueries.length}
+                {currentIndex + 1} of {filteredFacts.length}
               </span>
               <ButtonWithShortcut
                 onClick={goToNext}
-                disabled={currentIndex === filteredQueries.length - 1}
+                disabled={currentIndex === filteredFacts.length - 1}
                 shortcut="next"
                 variant="outline" 
                 size="sm"

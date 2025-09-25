@@ -116,9 +116,8 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
   // Keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: [
-      // Selection (only for generated tuples)
-      { keys: ['⌘', 'A'], handler: selectAll, description: 'Select all tuples', enabled: stage === 'generated' },
-      { keys: ['⌘', 'D'], handler: selectNone, description: 'Select none', enabled: stage === 'generated' },
+      // Selection (only for generated tuples) - toggle between all and none
+      { keys: ['⌘', '⇧', 'A'], handler: selectedTuples.size === tuples.length ? selectNone : selectAll, description: 'Toggle select all/none', enabled: stage === 'generated' },
       
       // Bulk actions (when tuples selected)
       { keys: ['A'], handler: bulkApprove, description: 'Approve selected', enabled: selectedTuples.size > 0 && stage === 'generated' },
@@ -161,20 +160,12 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
                 <div className="flex items-center space-x-4">
                   <div className="flex space-x-2">
                     <ButtonWithShortcut
-                      onClick={selectAll}
+                      onClick={selectedTuples.size === tuples.length ? selectNone : selectAll}
                       variant="outline"
                       size="sm"
-                      shortcut={['⌘', 'A']}
+                      shortcut={['⌘', '⇧', 'A']}
                     >
-                      All
-                    </ButtonWithShortcut>
-                    <ButtonWithShortcut
-                      onClick={selectNone}
-                      variant="outline"
-                      size="sm"
-                      shortcut={['⌘', 'D']}
-                    >
-                      None
+                      {selectedTuples.size === tuples.length ? 'None' : 'All'}
                     </ButtonWithShortcut>
                   </div>
                   
@@ -186,27 +177,25 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
                   </span>
                 </div>
 
-                {/* Action Buttons */}
-                {selectedTuples.size > 0 && (
-                  <div className="flex space-x-2">
-                    <ButtonWithShortcut
-                      onClick={bulkApprove}
-                      disabled={loading}
-                      variant="default"
-                      shortcut={['A']}
-                    >
-                      Approve
-                    </ButtonWithShortcut>
-                    <ButtonWithShortcut
-                      onClick={bulkReject}
-                      disabled={loading}
-                      variant="destructive"
-                      shortcut={['R']}
-                    >
-                      Reject
-                    </ButtonWithShortcut>
-                  </div>
-                )}
+                {/* Action Buttons - Always visible */}
+                <div className="flex space-x-2">
+                  <ButtonWithShortcut
+                    onClick={bulkApprove}
+                    disabled={loading || selectedTuples.size === 0}
+                    variant="default"
+                    shortcut={['A']}
+                  >
+                    Approve
+                  </ButtonWithShortcut>
+                  <ButtonWithShortcut
+                    onClick={bulkReject}
+                    disabled={loading || selectedTuples.size === 0}
+                    variant="destructive"
+                    shortcut={['R']}
+                  >
+                    Reject
+                  </ButtonWithShortcut>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -256,40 +245,6 @@ export default function TupleReview({ projectName }: TupleReviewProps) {
                         </div>
                       ))}
                     </div>
-
-                    {/* Individual Actions - Only for Generated */}
-                    {stage === 'generated' && !isSelected && (
-                      <div className="flex space-x-2">
-                        <ButtonWithShortcut
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedTuples(new Set([index]))
-                            bulkApprove()
-                          }}
-                          variant="secondary"
-                          size="sm"
-                          className="text-sm"
-                          shortcut={['A']}
-                          showShortcut={false}
-                        >
-                          Approve
-                        </ButtonWithShortcut>
-                        <ButtonWithShortcut
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedTuples(new Set([index]))
-                            bulkReject()
-                          }}
-                          variant="outline"
-                          size="sm"
-                          className="text-sm text-destructive hover:text-destructive"
-                          shortcut={['R']}
-                          showShortcut={false}
-                        >
-                          Reject
-                        </ButtonWithShortcut>
-                      </div>
-                    )}
                   </div>
                 </div>
               )

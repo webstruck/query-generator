@@ -11,13 +11,11 @@ export interface ShortcutHandler {
 export interface UseKeyboardShortcutsOptions {
   shortcuts: ShortcutHandler[]
   enabled?: boolean
-  ignoreWhenFocused?: string[] // CSS selectors or tag names to ignore when focused
 }
 
 export const useKeyboardShortcuts = ({ 
   shortcuts, 
-  enabled = true,
-  ignoreWhenFocused = ['input', 'textarea', '[contenteditable="true"]']
+  enabled = true
 }: UseKeyboardShortcutsOptions) => {
   
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
@@ -26,21 +24,23 @@ export const useKeyboardShortcuts = ({
     // Check if we should ignore this event based on focused element
     const activeElement = document.activeElement
     if (activeElement) {
-      const shouldIgnore = ignoreWhenFocused.some(selector => {
-        if (selector.toLowerCase() === activeElement.tagName.toLowerCase()) {
-          return true
+      // Only ignore shortcuts for text input elements where typing is expected
+      const isTextInput = (
+        (activeElement.tagName.toLowerCase() === 'input' && 
+         ['text', 'email', 'password', 'search', 'url', 'number'].includes((activeElement as HTMLInputElement).type)) ||
+        activeElement.tagName.toLowerCase() === 'textarea' ||
+        activeElement.hasAttribute('contenteditable')
+      )
+      
+      // For text input elements, only allow modifier-key shortcuts
+      if (isTextInput) {
+        const hasModifierKey = event.metaKey || event.ctrlKey || event.altKey
+        if (!hasModifierKey) {
+          return // Block single-key shortcuts only for text input elements
         }
-        if (selector.startsWith('[') && selector.endsWith(']')) {
-          const attr = selector.slice(1, -1).split('=')[0]
-          return activeElement.hasAttribute(attr)
-        }
-        try {
-          return activeElement.matches(selector)
-        } catch {
-          return false
-        }
-      })
-      if (shouldIgnore) return
+      }
+      
+      // For all other elements (checkboxes, buttons, selects, etc.), allow all shortcuts
     }
 
     // Check each shortcut
@@ -56,7 +56,7 @@ export const useKeyboardShortcuts = ({
         break // Only handle the first matching shortcut
       }
     }
-  }, [shortcuts, enabled, ignoreWhenFocused])
+  }, [shortcuts, enabled])
 
   useEffect(() => {
     if (!enabled) return
@@ -71,7 +71,8 @@ const checkKeysMatch = (event: KeyboardEvent, targetKeys: string[]): boolean => 
   const pressedKeys: string[] = []
   
   // Add modifier keys
-  if (event.metaKey || event.ctrlKey) pressedKeys.push('⌘')
+  if (event.metaKey) pressedKeys.push('⌘')
+  if (event.ctrlKey) pressedKeys.push('^')
   if (event.altKey) pressedKeys.push('⌥')
   if (event.shiftKey) pressedKeys.push('⇧')
   

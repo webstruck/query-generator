@@ -137,7 +137,7 @@ def generate_tuples(config: ProjectConfig, count: int, provider_type: str = "ope
             llm = create_llm_provider("azure")
         elif provider_type == "github":
             llm = create_llm_provider("github")
-        else:
+        else:   
             llm = create_llm_provider("openai", api_key=config.api_key)
     except Exception as e:
         console.print(f"[red]❌ Error creating LLM provider: {str(e)}[/red]")

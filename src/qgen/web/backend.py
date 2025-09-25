@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -130,6 +131,9 @@ class FilterRequest(BaseModel):
 class ApproveItemsRequest(BaseModel):
     item_ids: List[str]
 
+class UpdateItemStatusRequest(BaseModel):
+    status: str  # "pending", "approved", "rejected"
+
 # Background task functions
 
 def background_generate_tuples(project_name: str, project_path: Path, config: ProjectConfig, count: int, provider: str):
@@ -242,7 +246,7 @@ def background_extract_facts(project_name: str, project_path: Path, provider: st
             config.llm_provider = provider
             
             # Extract facts
-            extractor = FactExtractor(config)
+            extractor = FactExtractor(config, project_path)
             facts, batch_metadata = extractor.extract_facts(chunks)
             
             # Save facts
@@ -295,7 +299,7 @@ def background_generate_rag_queries(project_name: str, project_path: Path, provi
             chunks_map = {chunk.chunk_id: chunk for chunk in all_chunks}
             
             # Generate queries
-            generator = StandardQueryGenerator(config)
+            generator = StandardQueryGenerator(config, project_path)
             queries, batch_metadata = generator.generate_queries_from_facts(approved_facts, chunks_map)
             
             if queries:
@@ -349,7 +353,7 @@ def background_generate_multihop_queries(project_name: str, project_path: Path, 
             chunks_map = {chunk.chunk_id: chunk for chunk in all_chunks}
             
             # Generate multi-hop queries
-            generator = AdversarialMultiHopGenerator(config)
+            generator = AdversarialMultiHopGenerator(config, project_path)
             queries = generator.generate_multihop_queries(approved_facts, chunks_map)
             
             # Create batch metadata
@@ -862,6 +866,24 @@ async def create_rag_project(request: RAGProjectCreateRequest):
         (project_path / "data" / "facts").mkdir(parents=True)
         (project_path / "data" / "queries").mkdir(parents=True)
         (project_path / "data" / "exports").mkdir(parents=True)
+        (project_path / "prompts").mkdir(parents=True)
+        
+        # Copy default RAG prompt templates
+        src_prompts_dir = Path(__file__).parent.parent / "prompts"
+        dst_prompts_dir = project_path / "prompts"
+        
+        rag_prompt_files = [
+            "fact_extraction.txt",
+            "standard_query_generation.txt", 
+            "adversarial_query_generation.txt",
+            "multihop_query_generation.txt",
+            "realism_scoring.txt"
+        ]
+        
+        for filename in rag_prompt_files:
+            prompt_file = src_prompts_dir / filename
+            if prompt_file.exists():
+                shutil.copy2(prompt_file, dst_prompts_dir)
         
         # Create a simple marker file to identify RAG projects
         (project_path / ".rag_project").touch()
@@ -1207,7 +1229,7 @@ async def filter_queries(project_name: str, request: FilterRequest, background_t
 # ========================================
 
 @app.get("/api/rag-projects/{project_name}/facts/{stage}")
-async def get_facts(project_name: str, stage: str):
+async def get_facts(project_name: str, stage: str, pending_only: bool = False):
     """Get facts from specific stage with source text for highlighting."""
     try:
         project_path = get_project_path(project_name)
@@ -1216,6 +1238,10 @@ async def get_facts(project_name: str, stage: str):
         
         fact_manager = FactDataManager(str(project_path))
         facts = fact_manager.load_facts(stage)
+        
+        # Filter for pending only if requested
+        if pending_only:
+            facts = [fact for fact in facts if getattr(fact, 'status', 'pending') == 'pending']
         
         # Load chunks to get source text
         chunks_directory = project_path / "chunks"
@@ -1277,7 +1303,8 @@ async def get_facts(project_name: str, stage: str):
                 "fact_text": fact.fact_text,
                 "extraction_confidence": fact.extraction_confidence,
                 "source_text": source_text,
-                "highlighted_source": highlighted_html
+                "highlighted_source": highlighted_html,
+                "status": getattr(fact, 'status', 'pending')  # Include status in response
             })
 
         return {
@@ -1299,22 +1326,78 @@ async def approve_facts(project_name: str, request: ApproveItemsRequest):
         fact_manager = FactDataManager(str(project_path))
         generated_facts = fact_manager.load_facts("generated")
         
-        # Filter approved facts
-        approved_facts = [fact for fact in generated_facts if fact.fact_id in request.item_ids]
+        # Update status for approved facts
+        updated_count = 0
+        for fact in generated_facts:
+            if fact.fact_id in request.item_ids:
+                fact.status = "approved"
+                updated_count += 1
         
-        if approved_facts:
-            fact_manager.save_facts(approved_facts, "approved", custom_metadata={"approved_count": len(approved_facts)})
+        # Save back to generated file with updated statuses
+        if updated_count > 0:
+            fact_manager.save_facts(generated_facts, "generated", custom_metadata={"last_approval_update": time.time()})
+            
+            # Also save approved facts to separate file for backward compatibility
+            approved_facts = [fact for fact in generated_facts if fact.status == "approved"]
+            if approved_facts:
+                fact_manager.save_facts(approved_facts, "approved", custom_metadata={"approved_count": len(approved_facts)})
         
         return {
-            "message": f"Approved {len(approved_facts)} facts",
-            "approved_count": len(approved_facts)
+            "message": f"Approved {updated_count} facts",
+            "approved_count": updated_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/rag-projects/{project_name}/facts/{fact_id}/status")
+async def update_fact_status(project_name: str, fact_id: str, request: UpdateItemStatusRequest):
+    """Update status of a specific fact."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        if request.status not in ["pending", "approved", "rejected"]:
+            raise HTTPException(status_code=400, detail="Status must be 'pending', 'approved', or 'rejected'")
+        
+        fact_manager = FactDataManager(str(project_path))
+        generated_facts = fact_manager.load_facts("generated")
+        
+        # Find and update the specific fact
+        fact_found = False
+        for fact in generated_facts:
+            if fact.fact_id == fact_id:
+                fact.status = request.status
+                fact_found = True
+                break
+        
+        if not fact_found:
+            raise HTTPException(status_code=404, detail="Fact not found")
+        
+        # Save back to generated file
+        fact_manager.save_facts(generated_facts, "generated", custom_metadata={"last_status_update": time.time()})
+        
+        # Always update the approved file to reflect current status
+        # The approved file should only contain facts with status="approved"
+        approved_facts = [fact for fact in generated_facts if fact.status == "approved"]
+        if approved_facts:
+            fact_manager.save_facts(approved_facts, "approved", custom_metadata={"approved_count": len(approved_facts)})
+        else:
+            # If no approved facts remain, create empty approved file
+            fact_manager.save_facts([], "approved", custom_metadata={"approved_count": 0})
+        
+        return {
+            "message": f"Updated fact status to {request.status}",
+            "fact_id": fact_id,
+            "status": request.status
         }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/rag-projects/{project_name}/queries/{stage}")
-async def get_rag_queries(project_name: str, stage: str):
+async def get_rag_queries(project_name: str, stage: str, pending_only: bool = False):
     """Get RAG queries from specific stage with chunk highlighting."""
     try:
         project_path = get_project_path(project_name)
@@ -1323,6 +1406,10 @@ async def get_rag_queries(project_name: str, stage: str):
         
         query_manager = RAGQueryDataManager(str(project_path))
         queries = query_manager.load_queries(stage)
+        
+        # Filter for pending only if requested
+        if pending_only:
+            queries = [query for query in queries if getattr(query, 'status', 'pending') == 'pending']
         
         # Load chunks and facts for highlighting (same logic as CLI)
         chunks_map = {}
@@ -1398,7 +1485,8 @@ async def get_rag_queries(project_name: str, stage: str):
                 "source_chunk_ids": query.source_chunk_ids,
                 "difficulty": query.difficulty,
                 "realism_rating": getattr(query, 'realism_rating', None),
-                "highlighted_chunks": highlighted_chunks
+                "highlighted_chunks": highlighted_chunks,
+                "status": getattr(query, 'status', 'pending')  # Include status in response
             })
         
         return {
@@ -1422,20 +1510,122 @@ async def approve_rag_queries(project_name: str, request: ApproveItemsRequest):
         # Load both standard and multihop queries
         standard_queries = query_manager.load_queries("generated")
         multihop_queries = query_manager.load_queries("generated_multihop")
-        all_queries = standard_queries + multihop_queries
         
-        # Filter approved queries
-        approved_queries = [query for query in all_queries if query.query_id in request.item_ids]
+        # Update status for approved queries
+        updated_count = 0
+        for query in standard_queries:
+            if query.query_id in request.item_ids:
+                query.status = "approved"
+                updated_count += 1
         
-        if approved_queries:
-            query_manager.save_queries(approved_queries, "approved", metadata={"approved_count": len(approved_queries)})
+        for query in multihop_queries:
+            if query.query_id in request.item_ids:
+                query.status = "approved"
+                updated_count += 1
+        
+        # Save back with updated statuses
+        if updated_count > 0:
+            if standard_queries:
+                query_manager.save_queries(standard_queries, "generated", metadata={"last_approval_update": time.time()})
+            if multihop_queries:
+                query_manager.save_queries(multihop_queries, "generated_multihop", metadata={"last_approval_update": time.time()})
+            
+            # Also save approved queries to separate file for backward compatibility
+            all_approved = []
+            all_approved.extend([q for q in standard_queries if q.status == "approved"])
+            all_approved.extend([q for q in multihop_queries if q.status == "approved"])
+            
+            if all_approved:
+                query_manager.save_queries(all_approved, "approved", metadata={"approved_count": len(all_approved)})
         
         return {
-            "message": f"Approved {len(approved_queries)} queries",
-            "approved_count": len(approved_queries)
+            "message": f"Approved {updated_count} queries",
+            "approved_count": updated_count
         }
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/rag-projects/{project_name}/queries/{query_id}/status")
+async def update_query_status(project_name: str, query_id: str, request: UpdateItemStatusRequest):
+    """Update status of a specific query."""
+    try:
+        print(f"🔍 DEBUG: Updating query {query_id} to status {request.status}")
+        
+        project_path = get_project_path(project_name)
+        if not project_path.exists() or not (project_path / ".rag_project").exists():
+            raise HTTPException(status_code=404, detail="RAG project not found")
+        
+        if request.status not in ["pending", "approved", "rejected"]:
+            raise HTTPException(status_code=400, detail="Status must be 'pending', 'approved', or 'rejected'")
+        
+        query_manager = RAGQueryDataManager(str(project_path))
+        
+        # Load both standard and multihop queries
+        standard_queries = query_manager.load_queries("generated")
+        multihop_queries = query_manager.load_queries("generated_multihop")
+        
+        print(f"🔍 DEBUG: Loaded {len(standard_queries)} standard queries, {len(multihop_queries)} multihop queries")
+        print(f"🔍 DEBUG: Standard query IDs: {[q.query_id for q in standard_queries[:5]]}...")
+        print(f"🔍 DEBUG: Multihop query IDs: {[q.query_id for q in multihop_queries[:5]]}...")
+        
+        # Find and update the specific query
+        query_found = False
+        query_stage = None
+        
+        for query in standard_queries:
+            if query.query_id == query_id:
+                print(f"🔍 DEBUG: Found query {query_id} in standard queries, current status: {getattr(query, 'status', 'pending')}")
+                query.status = request.status
+                query_found = True
+                query_stage = "generated"
+                break
+        
+        if not query_found:
+            for query in multihop_queries:
+                if query.query_id == query_id:
+                    print(f"🔍 DEBUG: Found query {query_id} in multihop queries, current status: {getattr(query, 'status', 'pending')}")
+                    query.status = request.status
+                    query_found = True
+                    query_stage = "generated_multihop"
+                    break
+        
+        if not query_found:
+            print(f"❌ DEBUG: Query {query_id} not found in any stage!")
+            print(f"🔍 DEBUG: All standard IDs: {[q.query_id for q in standard_queries]}")
+            print(f"🔍 DEBUG: All multihop IDs: {[q.query_id for q in multihop_queries]}")
+            raise HTTPException(status_code=404, detail="Query not found")
+        
+        print(f"✅ DEBUG: Successfully updated query {query_id} to {request.status}")
+        
+        # Save back to appropriate file
+        if query_stage == "generated":
+            query_manager.save_queries(standard_queries, "generated", metadata={"last_status_update": time.time()})
+        elif query_stage == "generated_multihop":
+            query_manager.save_queries(multihop_queries, "generated_multihop", metadata={"last_status_update": time.time()})
+        
+        # Always update the approved file to reflect current status
+        # The approved file should only contain queries with status="approved"
+        all_approved = []
+        all_approved.extend([q for q in standard_queries if q.status == "approved"])
+        all_approved.extend([q for q in multihop_queries if q.status == "approved"])
+        
+        if all_approved:
+            query_manager.save_queries(all_approved, "approved", metadata={"approved_count": len(all_approved)})
+        else:
+            # If no approved queries remain, create empty approved file
+            query_manager.save_queries([], "approved", metadata={"approved_count": 0})
+        
+        print(f"✅ DEBUG: Updated approved file, now contains {len(all_approved)} approved queries")
+        
+        return {
+            "message": f"Updated query status to {request.status}",
+            "query_id": query_id,
+            "status": request.status
+        }
+        
+    except Exception as e:
+        print(f"❌ DEBUG: Error updating query {query_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/rag-projects/{project_name}/export/{format}")
@@ -1477,6 +1667,142 @@ async def get_rag_operation_status(project_name: str, operation: str):
     if not status:
         raise HTTPException(status_code=404, detail="No active operation found")
     return status
+
+@app.get("/api/rag-projects/{project_name}/prompts/{template_name}")
+async def get_rag_prompt(project_name: str, template_name: str):
+    """Get content of a specific RAG prompt template."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+        
+        # Validate template name
+        valid_templates = [
+            "fact_extraction.txt",
+            "standard_query_generation.txt", 
+            "adversarial_query_generation.txt",
+            "multihop_query_generation.txt",
+            "realism_scoring.txt"
+        ]
+        
+        if template_name not in valid_templates:
+            raise HTTPException(status_code=400, detail=f"Invalid template name. Must be one of: {', '.join(valid_templates)}")
+        
+        prompt_file = project_path / "prompts" / template_name
+        if not prompt_file.exists():
+            raise HTTPException(status_code=404, detail=f"Prompt template '{template_name}' not found")
+        
+        content = prompt_file.read_text(encoding='utf-8')
+        return {"content": content, "template_name": template_name}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/rag-projects/{project_name}/prompts/{template_name}")
+async def update_rag_prompt(project_name: str, template_name: str, request: dict):
+    """Update content of a specific RAG prompt template."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+        
+        # Validate template name
+        valid_templates = [
+            "fact_extraction.txt",
+            "standard_query_generation.txt", 
+            "adversarial_query_generation.txt",
+            "multihop_query_generation.txt",
+            "realism_scoring.txt"
+        ]
+        
+        if template_name not in valid_templates:
+            raise HTTPException(status_code=400, detail=f"Invalid template name. Must be one of: {', '.join(valid_templates)}")
+        
+        # Validate request content
+        if "content" not in request:
+            raise HTTPException(status_code=400, detail="Request must include 'content' field")
+        
+        content = request["content"]
+        if not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="Content must be a string")
+        
+        # Ensure prompts directory exists
+        prompts_dir = project_path / "prompts"
+        prompts_dir.mkdir(exist_ok=True)
+        
+        # Write content to file
+        prompt_file = prompts_dir / template_name
+        prompt_file.write_text(content, encoding='utf-8')
+        
+        return {"message": f"Prompt template '{template_name}' updated successfully", "template_name": template_name}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_name}/prompts/{template_name}")
+async def get_dimension_prompt(project_name: str, template_name: str):
+    """Get content of a specific dimension prompt template."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+        
+        # Validate template name for dimension projects
+        valid_templates = [
+            "query_generation.txt",
+            "tuple_generation.txt"
+        ]
+        
+        if template_name not in valid_templates:
+            raise HTTPException(status_code=400, detail=f"Invalid template name. Must be one of: {', '.join(valid_templates)}")
+        
+        prompt_file = project_path / "prompts" / template_name
+        if not prompt_file.exists():
+            raise HTTPException(status_code=404, detail=f"Prompt template '{template_name}' not found")
+        
+        content = prompt_file.read_text(encoding='utf-8')
+        return {"content": content, "template_name": template_name}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/projects/{project_name}/prompts/{template_name}")
+async def update_dimension_prompt(project_name: str, template_name: str, request: dict):
+    """Update content of a specific dimension prompt template."""
+    try:
+        project_path = get_project_path(project_name)
+        if not project_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+        
+        # Validate template name for dimension projects
+        valid_templates = [
+            "query_generation.txt",
+            "tuple_generation.txt"
+        ]
+        
+        if template_name not in valid_templates:
+            raise HTTPException(status_code=400, detail=f"Invalid template name. Must be one of: {', '.join(valid_templates)}")
+        
+        # Validate request content
+        if "content" not in request:
+            raise HTTPException(status_code=400, detail="Request must include 'content' field")
+        
+        content = request["content"]
+        if not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="Content must be a string")
+        
+        # Ensure prompts directory exists
+        prompts_dir = project_path / "prompts"
+        prompts_dir.mkdir(exist_ok=True)
+        
+        # Write content to file
+        prompt_file = prompts_dir / template_name
+        prompt_file.write_text(content, encoding='utf-8')
+        
+        return {"message": f"Prompt template '{template_name}' updated successfully", "template_name": template_name}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Serve static files (React build) in production
 frontend_dist = Path(__file__).parent / "frontend" / "dist"

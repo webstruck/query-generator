@@ -950,105 +950,31 @@ def create_rag_project(project_name: str):
 
 def copy_rag_prompt_templates(prompts_dir: Path):
     """Copy default RAG prompt templates to project."""
-    # Create basic prompt templates for now
-    templates = {
-        "fact_extraction.txt": """You are an expert at extracting salient facts from text chunks.
-
-Given the following text chunk, identify ONE key fact that a user might want to ask a question about.
-The fact should be:
-- Specific and actionable
-- Clearly stated in the text
-- Something a real user would want to know
-
-Chunk ID: {chunk_id}
-Chunk Text: {chunk_text}
-
-Extract the most important fact that users would commonly ask about.""",
-
-        "standard_query_generation.txt": """You are an expert at creating realistic user queries for information retrieval systems.
-
-Given a text chunk and a specific fact from that chunk, generate a natural question that a real user would ask to find this information.
-
-Chunk Text: {chunk_text}
-Target Fact: {fact_text}
-
-Guidelines:
-- Make the question sound natural and conversational
-- Use varied phrasing (don't just restate the fact)
-- The question should be answerable by the given chunk
-
-Create a realistic query that sounds like something a real user would ask.""",
-
-        "adversarial_query_generation.txt": """You are an expert at creating challenging test queries for retrieval systems.
-
-Given a target chunk with a specific fact, and some similar chunks that might be confusing, create a query that:
-- Is answered by the target chunk
-- Might be confused with the distractor chunks
-- Uses terms from both target and distractor chunks
-- Is still realistic and natural
-
-Target Chunk: {target_chunk_text}
-Target Fact: {target_fact}
-
-Distractor Chunks:
-{distractor_chunks}
-
-Create an adversarial query that uses terms from the distractors but is only answerable by the target chunk.""",
-
-        "multihop_query_generation.txt": """You are an expert at creating challenging multi-hop queries for RAG evaluation systems.
-
-Your task is to create an adversarial question that requires combining information from ALL provided chunks and is challenging for retrieval systems.
-
-Given {num_chunks} related chunks below, create a query that:
-
-REQUIREMENTS:
-1. ✅ Requires information from ALL {num_chunks} chunks to answer completely
-2. ✅ Is challenging for retrieval systems (might retrieve only partial information)
-3. ✅ Sounds natural and realistic - something a real user would ask
-4. ✅ Tests the system's ability to synthesize information across multiple sources
-5. ✅ Has some complexity that makes simple keyword matching insufficient
-
-CHUNKS TO ANALYZE:
-{chunk_contexts}
-
-ADVERSARIAL STRATEGY:
-{difficulty_instruction}
-
-Create a query that would be difficult for a retrieval system because:
-- It requires synthesizing facts across multiple chunks
-- Simple keyword overlap might not identify all relevant chunks
-- The answer requires connecting related concepts from different sources
-- A partial answer from just one chunk would be incomplete or misleading
-
-RESPONSE FORMAT:
-QUERY: [Write a natural, conversational question that requires all chunks to answer completely. Make it sound like something a real user would ask.]
-
-ANSWER: [Provide the complete answer that demonstrates information from all chunks is needed. This should be comprehensive and show how the chunks complement each other.]
-
-REASONING: [Explain in 2-3 sentences why this query is adversarial - what makes it challenging for retrieval systems and why all chunks are essential for the complete answer.]
-
-Remember: The query should be natural and realistic while being technically challenging for RAG systems.""",
-
-        "realism_scoring.txt": """You are an expert at evaluating the realism of user queries for information retrieval systems.
-
-Rate the following query on a scale of 1-5 for how realistic it sounds as something a real user would ask:
-
-Query: {query_text}
-Answer Fact: {answer_fact}
-Difficulty Level: {difficulty}
-
-Consider:
-- Natural language patterns
-- Realistic information needs
-- Appropriate complexity for the difficulty level
-- Conversational tone
-
-Evaluate this query's realism and provide a score from 1 (very artificial) to 5 (very realistic)."""
-    }
+    import shutil
+    from pathlib import Path
     
-    for filename, content in templates.items():
-        with open(prompts_dir / filename, 'w', encoding='utf-8') as f:
-            f.write(content)
+    # Get the source prompts directory
+    current_file = Path(__file__)
+    src_prompts_dir = current_file.parent.parent / "prompts"
+    
+    if not src_prompts_dir.exists():
+        raise FileNotFoundError(f"Source prompts directory not found: {src_prompts_dir}")
+    
+    # List of RAG-specific prompt files to copy
+    rag_prompt_files = [
+        "fact_extraction.txt",
+        "standard_query_generation.txt", 
+        "adversarial_query_generation.txt",
+        "multihop_query_generation.txt",
+        "realism_scoring.txt"
+    ]
+    
+    for filename in rag_prompt_files:
+        src_file = src_prompts_dir / filename
+        if src_file.exists():
+            shutil.copy2(src_file, prompts_dir / filename)
+        else:
+            console.print(f"[yellow]Warning: Template file {filename} not found in {src_prompts_dir}[/yellow]")
 
 
 def create_annotated_rag_config(config_path: Path, config: "RAGConfig"):

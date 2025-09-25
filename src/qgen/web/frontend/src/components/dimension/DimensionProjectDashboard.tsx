@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import QueryReview from './QueryReview'
 import TupleReview from './TupleReview'
+import { DimensionPromptEditor } from './DimensionPromptEditor'
+import { OverviewShortcuts } from './OverviewShortcuts'
+import { DimensionEditShortcuts } from './DimensionEditShortcuts'
+import { ExportShortcuts } from './ExportShortcuts'
 import { useNotification } from '../shared/Notification'
 import { type DimensionProject } from '../ProjectSelector'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -387,31 +391,16 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
     }
   }
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts - Tab navigation only
   useKeyboardShortcuts({
     shortcuts: [
       // Tab navigation
       { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
       { keys: ['2'], handler: () => setActiveTab('dimensions'), description: 'Dimensions tab' },
-      { keys: ['3'], handler: () => setActiveTab('tuples'), description: 'Tuples tab' },
-      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
-      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
-      
-      // Main workflow actions (only when not editing)
-      { keys: ['E'], handler: () => setActiveTab('dimensions'), description: 'Edit dimensions', enabled: !editingDimensions },
-      { keys: ['G'], handler: generateTuples, description: 'Generate tuples', enabled: !loading && !editingDimensions },
-      { keys: ['A'], handler: approveTuples, description: 'Approve all tuples', enabled: !loading && (projectData?.data_status?.generated_tuples || 0) > 0 && !editingDimensions },
-      { keys: ['Q'], handler: generateQueries, description: 'Generate queries', enabled: !loading && (projectData?.data_status?.approved_tuples || 0) > 0 && !editingDimensions },
-      { keys: ['R'], handler: () => setActiveTab('queries'), description: 'Review queries', enabled: (projectData?.data_status?.generated_queries || 0) > 0 && !editingDimensions },
-      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: (projectData?.data_status?.approved_queries || 0) > 0 && !editingDimensions },
-      
-      // Dimension editing (only when editing)
-      { keys: ['⌘', 'S'], handler: saveDimensions, description: 'Save dimensions', enabled: editingDimensions },
-      { keys: ['Esc'], handler: cancelEditingDimensions, description: 'Cancel editing', enabled: editingDimensions },
-      
-      // Export actions (when on export tab)
-      { keys: ['⌘', 'C'], handler: () => exportData('csv'), description: 'Export CSV', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 },
-      { keys: ['⌘', 'J'], handler: () => exportData('json'), description: 'Export JSON', enabled: activeTab === 'export' && (projectData?.data_status?.approved_queries || 0) > 0 }
+      { keys: ['3'], handler: () => setActiveTab('prompts'), description: 'Prompts tab' },
+      { keys: ['4'], handler: () => setActiveTab('tuples'), description: 'Tuples tab' },
+      { keys: ['5'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['6'], handler: () => setActiveTab('export'), description: 'Export tab' }
     ],
     enabled: true
   })
@@ -423,6 +412,35 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
   return (
     <>
       <NotificationContainer />
+      
+      {/* Tab-specific shortcuts */}
+      <OverviewShortcuts 
+        isActive={activeTab === 'overview'}
+        loading={loading}
+        editingDimensions={editingDimensions}
+        projectData={projectData}
+        onEditDimensions={() => setActiveTab('dimensions')}
+        onGenerateTuples={generateTuples}
+        onApproveTuples={approveTuples}
+        onGenerateQueries={generateQueries}
+        onReviewQueries={() => setActiveTab('queries')}
+        onExportDataset={() => setActiveTab('export')}
+      />
+      
+      <DimensionEditShortcuts 
+        isActive={activeTab === 'dimensions'}
+        isEditing={editingDimensions}
+        onStartEdit={startEditingDimensions}
+        onSave={saveDimensions}
+        onCancel={cancelEditingDimensions}
+      />
+      
+      <ExportShortcuts 
+        isActive={activeTab === 'export'}
+        hasApprovedQueries={(projectData?.data_status?.approved_queries || 0) > 0}
+        onExportCSV={() => exportData('csv')}
+        onExportJSON={() => exportData('json')}
+      />
       
       {/* Progress Bar */}
       {progress.visible && (
@@ -442,7 +460,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
       
       <div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <LayoutDashboard className="h-4 w-4" />
             Overview
@@ -453,6 +471,10 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
             <Badge variant="secondary" className="ml-1">
               {projectData.dimensions.length}
             </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="prompts" className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Prompts
           </TabsTrigger>
           <TabsTrigger value="tuples" className="flex items-center gap-2">
             <Target className="h-4 w-4" />
@@ -598,7 +620,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   disabled={loading || (projectData?.data_status?.generated_tuples || 0) === 0}
                   variant="default"
                   className="flex items-center space-x-2"
-                  shortcut={['A']}
+                  shortcut={['⌘', 'A']}
                 >
                   {approvingTuples && (
                     <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
@@ -635,7 +657,7 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   onClick={() => setActiveTab('queries')}
                   disabled={(projectData?.data_status?.generated_queries || 0) === 0}
                   variant="outline"
-                  shortcut={['R']}
+                  shortcut={['⌘', 'R']}
                 >
                   Review
                 </ButtonWithShortcut>
@@ -668,12 +690,13 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
                   Dimensions
                 </CardTitle>
                 {!editingDimensions ? (
-                  <Button
+                  <ButtonWithShortcut
                     onClick={startEditingDimensions}
                     variant="default"
+                    shortcut={['E']}
                   >
-                    Edit Dimensions
-                  </Button>
+                    Edit
+                  </ButtonWithShortcut>
                 ) : (
                   <div className="space-x-2">
                     <ButtonWithShortcut
@@ -835,12 +858,16 @@ export default function DimensionProjectDashboard({ project, loading, setLoading
           </Card>
         </TabsContent>
 
-        <TabsContent value="queries" className="mt-6">
-          <QueryReview projectName={project.name} onUpdate={loadProjectData} />
+        <TabsContent value="prompts" className="space-y-6 mt-6">
+          <DimensionPromptEditor projectName={project.name} />
         </TabsContent>
 
         <TabsContent value="tuples" className="mt-6">
           <TupleReview projectName={project.name} />
+        </TabsContent>
+
+        <TabsContent value="queries" className="mt-6">
+          <QueryReview projectName={project.name} onUpdate={loadProjectData} />
         </TabsContent>
 
         <TabsContent value="export" className="mt-6">

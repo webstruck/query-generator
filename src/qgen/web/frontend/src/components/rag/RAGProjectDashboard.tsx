@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { type RAGProject } from '../ProjectSelector'
 import { useNotification } from '../shared/Notification'
 import { SingleQueryReview } from './SingleQueryReview'
+import { SingleFactReview } from './SingleFactReview'
+import { RAGPromptEditor } from './RAGPromptEditor'
+import { RAGOverviewShortcuts } from './RAGOverviewShortcuts'
+import { RAGFactsShortcuts } from './RAGFactsShortcuts'
+import { RAGQueriesShortcuts } from './RAGQueriesShortcuts'
+import { RAGExportShortcuts } from './RAGExportShortcuts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +45,7 @@ interface Fact {
   extraction_confidence: number
   source_text?: string
   highlighted_source?: string
+  status?: string
 }
 
 interface RAGQuery {
@@ -48,9 +55,10 @@ interface RAGQuery {
   source_chunk_ids: string[]
   difficulty: string
   realism_rating?: number
+  status?: string
 }
 
-type ActiveTab = 'overview' | 'chunks' | 'facts' | 'queries' | 'export'
+type ActiveTab = 'overview' | 'chunks' | 'facts' | 'queries' | 'prompts' | 'export'
 
 // Simple inline components for consistent design using shadcn
 const SimpleStatusCard: React.FC<{ title: string; count: number; subtitle: string }> = ({ title, count, subtitle }) => (
@@ -127,11 +135,44 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const [facts, setFacts] = useState<{ [stage: string]: Fact[] }>({})
   const [queries, setQueries] = useState<{ [stage: string]: RAGQuery[] }>({})
   const [selectedFacts, setSelectedFacts] = useState<Set<string>>(new Set())
-  const [factStage, setFactStage] = useState<'generated' | 'approved'>('generated')
   const [isQueryReviewOpen, setIsQueryReviewOpen] = useState(false)
+  const [isFactReviewOpen, setIsFactReviewOpen] = useState(false)
+  // const [pendingOnlyMode, setPendingOnlyMode] = useState(false) // Will be used for future enhancements
+  const [reviewFacts, setReviewFacts] = useState<Fact[]>([])
+  const [reviewQueries, setReviewQueries] = useState<RAGQuery[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Helper functions and getters
+  // Helper functions to get filtered data for review
+  const getFactsForReview = async (pendingOnly: boolean): Promise<Fact[]> => {
+    try {
+      const url = `/api/rag-projects/${project.name}/facts/generated${pendingOnly ? '?pending_only=true' : ''}`
+      const response = await fetch(url)
+      if (response.ok) {
+        const data = await response.json()
+        return data.facts || []
+      }
+    } catch (error) {
+      console.error('Error loading facts for review:', error)
+    }
+    return []
+  }
+
+  const getQueriesForReview = async (pendingOnly: boolean): Promise<RAGQuery[]> => {
+    try {
+      const [standardResponse, multihopResponse] = await Promise.all([
+        fetch(`/api/rag-projects/${project.name}/queries/generated${pendingOnly ? '?pending_only=true' : ''}`),
+        fetch(`/api/rag-projects/${project.name}/queries/generated_multihop${pendingOnly ? '?pending_only=true' : ''}`)
+      ])
+      
+      const standardQueries = standardResponse.ok ? (await standardResponse.json()).queries || [] : []
+      const multihopQueries = multihopResponse.ok ? (await multihopResponse.json()).queries || [] : []
+      
+      return [...standardQueries, ...multihopQueries]
+    } catch (error) {
+      console.error('Error loading queries for review:', error)
+      return []
+    }
+  }
   const getChunksCount = () => chunkFiles.reduce((sum, file) => sum + file.chunks_count, 0)
   const getGeneratedFactsCount = () => facts.generated?.length || 0
   const getApprovedFactsCount = () => facts.approved?.length || 0
@@ -139,78 +180,24 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   const getApprovedQueriesCount = () => queries.approved?.length || 0
 
   // Helper functions for keyboard shortcuts
-  const extractFacts = () => handleExtractFacts()
-  const generateQueries = () => handleGenerateQueries(false)
-  const generateQueriesOfType = (type: 'standard' | 'multihop') => handleGenerateQueries(type === 'multihop')
-  const startQueryReview = () => handleStartSingleQueryReview()
-  const exportQueries = (format: 'json' | 'csv') => handleExport(format)
+  const startQueryReview = () => handleStartSingleQueryReview(false)
   const selectAllFacts = () => {
-    const currentFacts = factStage === 'generated' ? facts.generated || [] : facts.approved || []
-    const allFactIds = new Set(currentFacts.map(fact => fact.fact_id))
+    const allFactIds = new Set((facts.generated || []).map(fact => fact.fact_id))
     setSelectedFacts(allFactIds)
   }
   const selectNoneFacts = () => setSelectedFacts(new Set())
   const bulkApproveFacts = () => handleApproveFacts()
 
-  const handleIndividualApprove = async (factId: string) => {
-    try {
-      const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_ids: [factId] })
-      })
-
-      const result = await response.json()
-      
-      if (response.ok) {
-        showNotification('Fact approved successfully!', 'success')
-        loadProjectData()
-      } else {
-        showNotification(result.detail || 'Failed to approve fact', 'error')
-      }
-    } catch (error) {
-      console.error('Individual approve error:', error)
-      showNotification('Failed to approve fact', 'error')
-    }
-  }
-
-  const handleIndividualReject = async (factId: string) => {
-    // For now, just remove from selection
-    const newSelected = new Set(selectedFacts)
-    newSelected.delete(factId)
-    setSelectedFacts(newSelected)
-    showNotification('Fact rejected', 'info')
-  }
-
-  // Keyboard shortcuts
+  // Keyboard shortcuts - Tab navigation only
   useKeyboardShortcuts({
     shortcuts: [
       // Tab navigation
       { keys: ['1'], handler: () => setActiveTab('overview'), description: 'Overview tab' },
       { keys: ['2'], handler: () => setActiveTab('chunks'), description: 'Chunks tab' },
-      { keys: ['3'], handler: () => setActiveTab('facts'), description: 'Facts tab' },
-      { keys: ['4'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
-      { keys: ['5'], handler: () => setActiveTab('export'), description: 'Export tab' },
-      
-      // Main workflow actions
-      { keys: ['U'], handler: () => setActiveTab('chunks'), description: 'Upload chunks', enabled: activeTab === 'overview' },
-      { keys: ['F'], handler: extractFacts, description: 'Extract facts', enabled: getChunksCount() > 0 },
-      { keys: ['G'], handler: generateQueries, description: 'Generate queries', enabled: getApprovedFactsCount() > 0 },
-      { keys: ['X'], handler: () => setActiveTab('export'), description: 'Export dataset', enabled: getApprovedQueriesCount() > 0 },
-      
-      // Facts review (when on facts tab)
-      { keys: ['⌘', 'A'], handler: selectAllFacts, description: 'Select all facts', enabled: activeTab === 'facts' && getGeneratedFactsCount() > 0 },
-      { keys: ['⌘', 'D'], handler: selectNoneFacts, description: 'Select none', enabled: activeTab === 'facts' },
-      { keys: ['A'], handler: bulkApproveFacts, description: 'Approve selected facts', enabled: activeTab === 'facts' && selectedFacts.size > 0 },
-      
-      // Query generation (when on queries tab)
-      { keys: ['S'], handler: () => generateQueriesOfType('standard'), description: 'Generate standard queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
-      { keys: ['M'], handler: () => generateQueriesOfType('multihop'), description: 'Generate multi-hop queries', enabled: activeTab === 'queries' && getApprovedFactsCount() > 0 },
-      { keys: ['↵'], handler: startQueryReview, description: 'Start query review', enabled: getGeneratedQueriesCount() > 0 },
-      
-      // Export (when on export tab)
-      { keys: ['⌘', 'J'], handler: () => exportQueries('json'), description: 'Export JSON', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 },
-      { keys: ['⌘', 'C'], handler: () => exportQueries('csv'), description: 'Export CSV', enabled: activeTab === 'export' && getApprovedQueriesCount() > 0 }
+      { keys: ['3'], handler: () => setActiveTab('prompts'), description: 'Prompts tab' },
+      { keys: ['4'], handler: () => setActiveTab('facts'), description: 'Facts tab' },
+      { keys: ['5'], handler: () => setActiveTab('queries'), description: 'Queries tab' },
+      { keys: ['6'], handler: () => setActiveTab('export'), description: 'Export tab' }
     ],
     enabled: true
   })
@@ -449,37 +436,204 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
     }
   }
 
-  const handleStartSingleQueryReview = () => {
+  const handleStartSingleQueryReview = async (pendingOnly = false) => {
+    // setPendingOnlyMode(pendingOnly) // Will be used for future enhancements
+    const reviewData = await getQueriesForReview(pendingOnly)
+    setReviewQueries(reviewData)
     setIsQueryReviewOpen(true)
   }
 
-  const handleQueryReviewComplete = async (approvedQueryIds: string[]) => {
-    if (approvedQueryIds.length > 0) {
-      try {
-        const response = await fetch(`/api/rag-projects/${project.name}/queries/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_ids: approvedQueryIds })
+  const handleQueryReviewComplete = async (approvedQueryIds: string[], allReviewResults?: any[]) => {
+    try {
+      // Send all individual status updates
+      if (allReviewResults && allReviewResults.length > 0) {
+        const statusUpdatePromises = allReviewResults.map(async (result: any) => {
+          const statusMap: { [key: string]: string } = {
+            'approved': 'approved',
+            'rejected': 'rejected', 
+            'edited': 'approved', // Edited queries are approved
+            'skipped': 'pending'  // Skipped queries remain pending
+          }
+          
+          const newStatus = statusMap[result.action] || 'pending'
+          
+          // Skip if status is unchanged (pending -> pending)
+          if (newStatus === 'pending') return { success: true, queryId: result.queryId, skipped: true }
+          
+          try {
+            const response = await fetch(`/api/rag-projects/${project.name}/queries/${result.queryId}/status`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus })
+            })
+            
+            if (!response.ok) {
+              const error = await response.json()
+              console.error(`Failed to update query ${result.queryId}:`, error)
+              console.error(`Response status: ${response.status} ${response.statusText}`)
+              console.error(`Request body:`, { status: newStatus })
+              return { success: false, queryId: result.queryId, error: error.detail || error.message || 'Unknown error' }
+            }
+            
+            return { success: true, queryId: result.queryId, status: newStatus }
+          } catch (error) {
+            console.error(`Error updating query ${result.queryId}:`, error)
+            return { success: false, queryId: result.queryId, error }
+          }
         })
-
-        const result = await response.json()
         
-        if (response.ok) {
-          showNotification(result.message, 'success')
-          loadProjectData()
-        } else {
-          showNotification(result.detail || 'Failed to approve queries', 'error')
+        const results = await Promise.all(statusUpdatePromises)
+        
+        // Count successful updates
+        const successful = results.filter(r => r?.success).length
+        const failed = results.filter(r => r && !r.success).length
+        const skipped = results.filter(r => r?.skipped).length
+        
+        if (successful > 0) {
+          showNotification(`Review completed: ${successful} queries updated${skipped > 0 ? `, ${skipped} skipped` : ''}`, 'success')
         }
-      } catch (error) {
-        console.error('Approve queries error:', error)
-        showNotification('Failed to approve queries', 'error')
+        if (failed > 0) {
+          const failedQueries = results.filter(r => r && !r.success)
+          const errorMessages = failedQueries.map(r => `${r.queryId}: ${r.error}`).join(', ')
+          console.error('Failed query updates:', errorMessages)
+          showNotification(`Error: ${failed} queries failed to update (see console for details)`, 'error')
+        }
+      } else {
+        // Fallback: use bulk approval for backward compatibility (when allReviewResults is not provided)
+        if (approvedQueryIds.length > 0) {
+          try {
+            const response = await fetch(`/api/rag-projects/${project.name}/queries/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_ids: approvedQueryIds })
+            })
+
+            const result = await response.json()
+            
+            if (response.ok) {
+              showNotification(result.message, 'success')
+            } else {
+              showNotification(result.detail || 'Failed to approve queries', 'error')
+            }
+          } catch (error) {
+            console.error('Approve queries error:', error)
+            showNotification('Failed to approve queries', 'error')
+          }
+        }
       }
+      
+      // Refresh data to show updated statuses
+      loadProjectData()
+    } catch (error) {
+      console.error('Query review completion error:', error)
+      showNotification('Failed to save review results', 'error')
     }
+    
     setIsQueryReviewOpen(false)
   }
 
   const handleQueryReviewCancel = () => {
     setIsQueryReviewOpen(false)
+  }
+
+  const handleStartSingleFactReview = async (pendingOnly = false) => {
+    // setPendingOnlyMode(pendingOnly) // Will be used for future enhancements
+    const reviewData = await getFactsForReview(pendingOnly)
+    setReviewFacts(reviewData)
+    setIsFactReviewOpen(true)
+  }
+
+  const handleFactReviewComplete = async (approvedFactIds: string[], allReviewResults?: any[]) => {
+    try {
+      // Send all individual status updates
+      if (allReviewResults && allReviewResults.length > 0) {
+        const statusUpdatePromises = allReviewResults.map(async (result: any) => {
+          const statusMap: { [key: string]: string } = {
+            'approved': 'approved',
+            'rejected': 'rejected', 
+            'edited': 'approved', // Edited facts are approved
+            'skipped': 'pending'  // Skipped facts remain pending
+          }
+          
+          const newStatus = statusMap[result.action] || 'pending'
+          
+          // Skip if status is unchanged (pending -> pending)
+          if (newStatus === 'pending') return { success: true, factId: result.factId, skipped: true }
+          
+          try {
+            const response = await fetch(`/api/rag-projects/${project.name}/facts/${result.factId}/status`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus })
+            })
+            
+            if (!response.ok) {
+              const error = await response.json()
+              console.error(`Failed to update fact ${result.factId}:`, error)
+              console.error(`Response status: ${response.status} ${response.statusText}`)
+              console.error(`Request body:`, { status: newStatus })
+              return { success: false, factId: result.factId, error: error.detail || error.message || 'Unknown error' }
+            }
+            
+            return { success: true, factId: result.factId, status: newStatus }
+          } catch (error) {
+            console.error(`Error updating fact ${result.factId}:`, error)
+            return { success: false, factId: result.factId, error }
+          }
+        })
+        
+        const results = await Promise.all(statusUpdatePromises)
+        
+        // Count successful updates
+        const successful = results.filter(r => r?.success).length
+        const failed = results.filter(r => r && !r.success).length
+        const skipped = results.filter(r => r?.skipped).length
+        
+        if (successful > 0) {
+          showNotification(`Review completed: ${successful} facts updated${skipped > 0 ? `, ${skipped} skipped` : ''}`, 'success')
+        }
+        if (failed > 0) {
+          const failedFacts = results.filter(r => r && !r.success)
+          const errorMessages = failedFacts.map(r => `${r.factId}: ${r.error}`).join(', ')
+          console.error('Failed fact updates:', errorMessages)
+          showNotification(`Error: ${failed} facts failed to update (see console for details)`, 'error')
+        }
+      } else {
+        // Fallback: use bulk approval for backward compatibility (when allReviewResults is not provided)
+        if (approvedFactIds.length > 0) {
+          try {
+            const response = await fetch(`/api/rag-projects/${project.name}/facts/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_ids: approvedFactIds })
+            })
+
+            const result = await response.json()
+            
+            if (response.ok) {
+              showNotification(result.message, 'success')
+            } else {
+              showNotification(result.detail || 'Failed to approve facts', 'error')
+            }
+          } catch (error) {
+            console.error('Approve facts error:', error)
+            showNotification('Failed to approve facts', 'error')
+          }
+        }
+      }
+      
+      // Refresh data to show updated statuses
+      loadProjectData()
+    } catch (error) {
+      console.error('Fact review completion error:', error)
+      showNotification('Failed to save review results', 'error')
+    }
+    
+    setIsFactReviewOpen(false)
+  }
+
+  const handleFactReviewCancel = () => {
+    setIsFactReviewOpen(false)
   }
 
   const handleExport = async (format: 'json' | 'csv') => {
@@ -554,208 +708,103 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
   )
 
   const renderFactsStage = () => {
-    const currentFacts = factStage === 'generated' ? facts.generated || [] : facts.approved || []
-
+    const generatedFacts = facts.generated || []
+    const approvedFacts = facts.approved || []
 
     return (
       <div className="space-y-6">
-        {/* Header with Stage Selection */}
+        {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-semibold text-foreground flex items-center">
             <Search className="h-4 w-4 mr-2" />
             Fact Review
           </h3>
-          <select
-            value={factStage}
-            onChange={(e) => setFactStage(e.target.value as 'generated' | 'approved')}
-            className="px-3 py-2 border border-border rounded focus:outline-none focus:ring-2 focus:ring-ring bg-background text-foreground"
-          >
-            <option value="generated">Generated Facts</option>
-            <option value="approved">Approved Facts</option>
-          </select>
         </div>
 
-        {currentFacts.length === 0 ? (
+        {generatedFacts.length === 0 ? (
           <Card className="p-6">
             <div className="text-center py-8">
-              <p className="text-muted-foreground mb-4">
-                {factStage === 'generated' ? 'No facts generated yet' : 'No facts approved yet'}
-              </p>
-              {factStage === 'generated' && (
-                <ButtonWithShortcut
-                  onClick={handleExtractFacts}
-                  disabled={getChunksCount() === 0 || !provider || !!operationStatus}
-                  shortcut={['F']}
-                >
-                  Extract Facts
-                </ButtonWithShortcut>
-              )}
+              <p className="text-muted-foreground mb-4">No facts generated yet</p>
+              <ButtonWithShortcut
+                onClick={handleExtractFacts}
+                disabled={getChunksCount() === 0 || !provider || !!operationStatus}
+                shortcut={['F']}
+              >
+                Extract Facts
+              </ButtonWithShortcut>
             </div>
           </Card>
         ) : (
-          <>
-            {/* Floating Action Bar - Only for Generated */}
-            {factStage === 'generated' && (
-              <Card className="p-4 mb-6 sticky top-4 z-10">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  {/* Selection Controls */}
-                  <div className="flex items-center space-x-4">
-                    <div className="flex space-x-2">
-                      <ButtonWithShortcut
-                        onClick={selectAllFacts}
-                        className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
-                        variant="outline"
-                        size="sm"
-                        shortcut={['⌘', 'A']}
-                      >
-                        All
-                      </ButtonWithShortcut>
-                      <ButtonWithShortcut
-                        onClick={selectNoneFacts}
-                        className="px-3 py-1 text-sm border border-border rounded hover:bg-accent"
-                        variant="outline"
-                        size="sm"
-                        shortcut={['⌘', 'D']}
-                      >
-                        None
-                      </ButtonWithShortcut>
-                    </div>
-                    
-                    <span className="text-sm text-muted-foreground">
-                      {selectedFacts.size === 0 
-                        ? 'No facts selected' 
-                        : `${selectedFacts.size} selected`
-                      }
-                    </span>
-                  </div>
-
-                  {/* Action Buttons */}
-                  {selectedFacts.size > 0 && (
-                    <div className="flex space-x-2">
-                      <ButtonWithShortcut
-                        onClick={handleApproveFacts}
-                        disabled={!!operationStatus}
-                        variant="default"
-                        shortcut={['A']}
-                      >
-                        Approve Selected
-                      </ButtonWithShortcut>
-                    </div>
-                  )}
+          // Single Fact Review Interface
+          <Card className="p-6">
+            <div className="text-center py-8">
+              <h4 className="text-lg font-medium text-foreground mb-4">
+                <div className="flex items-center justify-center">
+                  <Search className="h-5 w-5 mr-2" />
+                  Fact Review Ready
                 </div>
-              </Card>
-            )}
-
-            {/* Facts List with Simple Highlighting */}
-            <div className="space-y-3">
-              {currentFacts.map((fact, index) => {
-                const isSelected = selectedFacts.has(fact.fact_id)
-                
-                const getFactStatusStyle = (isSelected: boolean) => {
-                  const baseClasses = "p-4 rounded-lg border-2 mb-3 transition-all cursor-pointer"
-                  
-                  if (isSelected) {
-                    return `${baseClasses} border-primary bg-primary/10 shadow-md`
-                  }
-                  
-                  return `${baseClasses} border-border bg-muted hover:border-muted-foreground hover:shadow-sm`
-                }
-                
-                return (
-                  <div
-                    key={fact.fact_id}
-                    className={getFactStatusStyle(isSelected)}
-                    onClick={() => factStage === 'generated' && setSelectedFacts(prev => {
-                      const newSelected = new Set(prev)
-                      if (newSelected.has(fact.fact_id)) {
-                        newSelected.delete(fact.fact_id)
-                      } else {
-                        newSelected.add(fact.fact_id)
-                      }
-                      return newSelected
-                    })}
-                  >
-                    <div className="flex items-start space-x-4">
-                      {/* Checkbox - Only for Generated */}
-                      {factStage === 'generated' && (
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => setSelectedFacts(prev => {
-                            const newSelected = new Set(prev)
-                            if (newSelected.has(fact.fact_id)) {
-                              newSelected.delete(fact.fact_id)
-                            } else {
-                              newSelected.add(fact.fact_id)
-                            }
-                            return newSelected
-                          })}
-                          className="h-4 w-4 text-primary focus:ring-ring border-border rounded mt-1"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      )}
-                      
-                      {/* Fact Number */}
-                      <span className="bg-primary/20 text-primary px-2 py-1 rounded font-medium text-sm">
-                        #{index + 1}
-                      </span>
-                      
-                      {/* Fact Content */}
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-foreground mb-2">{fact.fact_text}</p>
-                        
-                        {/* Source Context with Model2Vec-based Highlighting */}
-                        {fact.source_text && (
-                          <div className="mt-2 p-3 bg-muted rounded border border-border">
-                            <p className="text-xs text-muted-foreground mb-1">Source Context (Model2Vec similarity):</p>
-                            <div 
-                              className="text-sm text-foreground"
-                              dangerouslySetInnerHTML={{ 
-                                __html: fact.highlighted_source || fact.source_text 
-                              }}
-                            />
-                          </div>
-                        )}
-                        
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Chunk: {fact.chunk_id} • Confidence: {(fact.extraction_confidence * 100).toFixed(1)}%
-                        </p>
-                      </div>
-
-                      {/* Individual Actions - Only for Generated */}
-                      {factStage === 'generated' && (
-                        <div className="flex space-x-2">
-                          <ButtonWithShortcut
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleIndividualApprove(fact.fact_id)
-                            }}
-                            size="sm"
-                            variant="default"
-                            className="bg-green-600 hover:bg-green-700"
-                            shortcut={['A']}
-                          >
-                            Approve
-                          </ButtonWithShortcut>
-                          <ButtonWithShortcut
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleIndividualReject(fact.fact_id)
-                            }}
-                            size="sm"
-                            variant="destructive"
-                            shortcut={['R']}
-                          >
-                            Reject
-                          </ButtonWithShortcut>
-                        </div>
-                      )}
-                    </div>
+              </h4>
+              
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-primary">Generated Facts:</span>
+                    <div className="text-2xl font-bold text-primary">{generatedFacts.length}</div>
                   </div>
-                )
-              })}
+                  <div>
+                    <span className="font-medium text-green-600">Approved Facts:</span>
+                    <div className="text-2xl font-bold text-green-600">{approvedFacts.length}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-blue-600">Ready for Review:</span>
+                    <div className="text-2xl font-bold text-blue-600">{generatedFacts.length}</div>
+                  </div>
+                </div>
+              </div>
+
+              <ButtonWithShortcut
+                onClick={() => handleStartSingleFactReview(false)}
+                className="bg-blue-600 hover:bg-blue-700 font-medium text-lg shadow-md"
+                size="lg"
+                shortcut={['↵']}
+              >
+                Start Fact Review
+              </ButtonWithShortcut>
+              
+              <div className="mt-4 text-sm text-muted-foreground space-y-1">
+                <p>Review facts one at a time with full source context</p>
+                <p>Use keyboard shortcuts for fast review: A (approve), R (reject), E (edit), S (skip)</p>
+                <p>Use the filter dropdown inside the review dialog to view specific statuses</p>
+              </div>
             </div>
-          </>
+          </Card>
+        )}
+
+        {/* Approved Facts Summary */}
+        {approvedFacts.length > 0 && (
+          <Card className="p-6">
+            <h4 className="text-lg font-medium text-foreground mb-4 flex items-center">
+              <FileText className="h-5 w-5 mr-2" />
+              Approved Facts ({approvedFacts.length})
+            </h4>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {approvedFacts.slice(0, 5).map((fact, index) => (
+                <div key={fact.fact_id} className="p-3 bg-muted rounded border border-border">
+                  <div className="flex items-start space-x-3">
+                    <span className="bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300 px-2 py-1 rounded font-medium text-xs">
+                      #{index + 1}
+                    </span>
+                    <p className="text-sm text-foreground flex-1">{fact.fact_text}</p>
+                  </div>
+                </div>
+              ))}
+              {approvedFacts.length > 5 && (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  ... and {approvedFacts.length - 5} more approved facts
+                </p>
+              )}
+            </div>
+          </Card>
         )}
       </div>
     )
@@ -785,7 +834,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                   onClick={() => handleGenerateQueries(false)}
                   disabled={!provider || !!operationStatus}
                   className="bg-green-600 hover:bg-green-700"
-                  shortcut={['S']}
+                  shortcut={['T']}
                 >
                   Generate Standard Queries
                 </ButtonWithShortcut>
@@ -855,10 +904,10 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                 </div>
 
                 <ButtonWithShortcut
-                  onClick={handleStartSingleQueryReview}
+                  onClick={() => handleStartSingleQueryReview(false)}
                   className="bg-blue-600 hover:bg-blue-700 font-medium text-lg shadow-md"
                   size="lg"
-                  shortcut="submit"
+                  shortcut={['↵']}
                 >
                   Start Query Review
                 </ButtonWithShortcut>
@@ -866,6 +915,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
                 <div className="mt-4 text-sm text-muted-foreground space-y-1">
                   <p>Review queries one at a time with full chunk context</p>
                   <p>Use keyboard shortcuts for fast review: A (approve), R (reject), E (edit), S (skip)</p>
+                  <p>Pending Only: Review only queries that haven't been approved or rejected yet</p>
                 </div>
               </div>
             </Card>
@@ -953,6 +1003,48 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
     <>
       <NotificationContainer />
       
+      {/* Tab-specific shortcuts */}
+      <RAGOverviewShortcuts 
+        isActive={activeTab === 'overview'}
+        getChunksCount={getChunksCount}
+        getApprovedFactsCount={getApprovedFactsCount}
+        getApprovedQueriesCount={getApprovedQueriesCount}
+        onUploadChunks={() => setActiveTab('chunks')}
+        onExtractFacts={handleExtractFacts}
+        onGenerateQueries={() => handleGenerateQueries(false)}
+        onExportDataset={() => setActiveTab('export')}
+      />
+      
+      <RAGFactsShortcuts 
+        isActive={activeTab === 'facts'}
+        isModalOpen={isFactReviewOpen}
+        getChunksCount={getChunksCount}
+        getGeneratedFactsCount={getGeneratedFactsCount}
+        selectedFactsSize={selectedFacts.size}
+        onExtractFacts={handleExtractFacts}
+        onStartFactReview={handleStartSingleFactReview}
+        onSelectAllFacts={selectAllFacts}
+        onSelectNoneFacts={selectNoneFacts}
+        onBulkApproveFacts={bulkApproveFacts}
+      />
+      
+      <RAGQueriesShortcuts 
+        isActive={activeTab === 'queries'}
+        isModalOpen={isQueryReviewOpen}
+        getApprovedFactsCount={getApprovedFactsCount}
+        getGeneratedQueriesCount={getGeneratedQueriesCount}
+        onGenerateStandardQueries={() => handleGenerateQueries(false)}
+        onGenerateMultihopQueries={() => handleGenerateQueries(true)}
+        onStartQueryReview={startQueryReview}
+      />
+      
+      <RAGExportShortcuts 
+        isActive={activeTab === 'export'}
+        getApprovedQueriesCount={getApprovedQueriesCount}
+        onExportJSON={() => handleExport('json')}
+        onExportCSV={() => handleExport('csv')}
+      />
+      
       {/* Progress Bar */}
       {operationStatus && (
         <Card className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 p-6 min-w-96">
@@ -974,7 +1066,7 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       
       <div>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ActiveTab)} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview" className="flex items-center gap-2">
               <LayoutDashboard className="h-4 w-4" />
               Overview
@@ -985,6 +1077,10 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
               <Badge variant="secondary" className="ml-1">
                 {getChunksCount()}
               </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="prompts" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Prompts
             </TabsTrigger>
             <TabsTrigger value="facts" className="flex items-center gap-2">
               <Lightbulb className="h-4 w-4" />
@@ -1156,6 +1252,10 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
             {renderChunksStage()}
           </TabsContent>
 
+          <TabsContent value="prompts" className="space-y-6 mt-6">
+            <RAGPromptEditor projectName={project.name} />
+          </TabsContent>
+
           <TabsContent value="facts" className="space-y-6 mt-6">
             {renderFactsStage()}
           </TabsContent>
@@ -1173,10 +1273,20 @@ export const RAGProjectDashboard: React.FC<RAGProjectDashboardProps> = ({ projec
       {/* Single Query Review Modal */}
       {isQueryReviewOpen && (
         <SingleQueryReview
-          queries={[...(queries.generated || []), ...(queries.multihop || [])]}
+          queries={reviewQueries}
           projectName={project.name}
           onComplete={handleQueryReviewComplete}
           onCancel={handleQueryReviewCancel}
+        />
+      )}
+
+      {/* Single Fact Review Modal */}
+      {isFactReviewOpen && (
+        <SingleFactReview
+          facts={reviewFacts}
+          projectName={project.name}
+          onComplete={handleFactReviewComplete}
+          onCancel={handleFactReviewCancel}
         />
       )}
     </>

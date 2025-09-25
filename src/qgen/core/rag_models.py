@@ -67,6 +67,7 @@ class ExtractedFact(BaseModel):
     reasoning: Optional[str] = None  # LLM reasoning for extraction
     span: Optional[FactSpan] = None  # Where in chunk this fact was found
     extracted_at: datetime = Field(default_factory=datetime.now)
+    status: str = "pending"  # "pending", "approved", "rejected"
     
     def get_chunk_with_highlight(self, chunk_text: str, similarity_threshold: float = None) -> str:
         """Return chunk text with fact highlighted using embedding-based similarity.

@@ -119,7 +119,7 @@ Average text length: {summary['avg_text_length']} chars"""
         
         # Extract facts
         console.print()
-        extractor = FactExtractor(config)
+        extractor = FactExtractor(config, Path.cwd())
         facts, batch_metadata = extractor.extract_facts(chunks)
         
         if not facts:
@@ -514,7 +514,7 @@ def generate_queries_cmd(
             console.print(f"[blue]📊 Processing all {len(facts)} approved facts[/blue]")
         
         # Generate queries
-        query_generator = StandardQueryGenerator(config)
+        query_generator = StandardQueryGenerator(config, Path.cwd())
         queries, batch_metadata = query_generator.generate_queries_from_facts(facts, chunks_map)
         
         if not queries:

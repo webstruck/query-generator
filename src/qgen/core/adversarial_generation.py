@@ -4,6 +4,7 @@ import random
 import numpy as np
 from typing import List, Dict, Optional, Tuple, Set
 from datetime import datetime
+from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress
 
@@ -185,8 +186,9 @@ class ChunkCombinationFinder:
 class AdversarialMultiHopGenerator:
     """Generates challenging multi-hop queries that require multiple chunks to answer."""
     
-    def __init__(self, config: RAGConfig):
+    def __init__(self, config: RAGConfig, project_path: Optional[Path] = None):
         self.config = config
+        self.project_path = project_path
         self.llm_provider = create_llm_provider(config.llm_provider)
         
         # Set up embedding provider with caching
@@ -291,15 +293,25 @@ class AdversarialMultiHopGenerator:
             return None
     
     def _load_prompt_template(self) -> str:
-        """Load the multi-hop query generation prompt template."""
+        """Load the multi-hop query generation prompt template, checking project folder first."""
         template_path = self.config.prompt_templates.get("multihop_query", "prompts/multihop_query_generation.txt")
         
         try:
-            with open(template_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except FileNotFoundError:
-            # Return default template if file not found
-            return self._get_default_multihop_template()
+            # If we have a project path, check project-specific prompts first
+            if self.project_path:
+                project_template_path = self.project_path / template_path
+                if project_template_path.exists():
+                    return project_template_path.read_text(encoding='utf-8')
+            
+            # Check absolute/relative path
+            template_file = Path(template_path)
+            if template_file.exists():
+                return template_file.read_text(encoding='utf-8')
+        except Exception as e:
+            print(f"Warning: Could not load template {template_path}: {e}")
+        
+        # Return default template if file not found
+        return self._get_default_multihop_template()
     
     def _get_default_multihop_template(self) -> str:
         """Default multi-hop query generation template."""

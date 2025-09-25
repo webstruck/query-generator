@@ -16,8 +16,9 @@ console = Console()
 class FactExtractor:
     """Extracts salient facts from text chunks using structured LLM responses."""
     
-    def __init__(self, config: RAGConfig):
+    def __init__(self, config: RAGConfig, project_path: Optional[Path] = None):
         self.config = config
+        self.project_path = project_path
         
         # Create structured LLM provider
         self.llm_provider = create_structured_llm_provider(
@@ -31,8 +32,15 @@ class FactExtractor:
         )
     
     def _load_prompt_template(self, template_path: str) -> str:
-        """Load prompt template from file."""
+        """Load prompt template from file, checking project folder first."""
         try:
+            # If we have a project path, check project-specific prompts first
+            if self.project_path:
+                project_template_path = self.project_path / template_path
+                if project_template_path.exists():
+                    return project_template_path.read_text(encoding='utf-8')
+            
+            # Check absolute/relative path
             template_file = Path(template_path)
             if template_file.exists():
                 return template_file.read_text(encoding='utf-8')
@@ -277,17 +285,29 @@ class FactDataManager:
 class StandardQueryGenerator:
     """Generator for standard RAG queries from extracted facts."""
     
-    def __init__(self, config: RAGConfig):
+    def __init__(self, config: RAGConfig, project_path: Optional[Path] = None):
         self.config = config
+        self.project_path = project_path
         self.llm_provider = create_structured_llm_provider(config.llm_provider)
         self.prompt_template = self._load_prompt_template()
     
     def _load_prompt_template(self) -> str:
-        """Load standard query generation prompt template."""
-        template_path = Path(self.config.prompt_templates.get("standard_query", "prompts/standard_query.txt"))
+        """Load standard query generation prompt template, checking project folder first."""
+        template_path = self.config.prompt_templates.get("standard_query", "prompts/standard_query_generation.txt")
         
-        if template_path.exists():
-            return template_path.read_text(encoding='utf-8')
+        try:
+            # If we have a project path, check project-specific prompts first
+            if self.project_path:
+                project_template_path = self.project_path / template_path
+                if project_template_path.exists():
+                    return project_template_path.read_text(encoding='utf-8')
+            
+            # Check absolute/relative path
+            template_file = Path(template_path)
+            if template_file.exists():
+                return template_file.read_text(encoding='utf-8')
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Warning: Could not load template {template_path}: {e}[/yellow]")
         
         # Default template if file doesn't exist
         return """Based on the following chunk of text and the extracted fact, generate a natural question that a user might ask to retrieve this information.

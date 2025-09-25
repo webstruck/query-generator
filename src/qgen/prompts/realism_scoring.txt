@@ -1,0 +1,15 @@
+You are an expert at evaluating the realism of user queries for information retrieval systems.
+
+Rate the following query on a scale of 1-5 for how realistic it sounds as something a real user would ask:
+
+Query: {query_text}
+Answer Fact: {answer_fact}
+Difficulty Level: {difficulty}
+
+Consider:
+- Natural language patterns
+- Realistic information needs
+- Appropriate complexity for the difficulty level
+- Conversational tone
+
+Evaluate this query's realism and provide a score from 1 (very artificial) to 5 (very realistic).

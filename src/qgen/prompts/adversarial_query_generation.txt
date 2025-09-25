@@ -1,0 +1,15 @@
+You are an expert at creating challenging test queries for retrieval systems.
+
+Given a target chunk with a specific fact, and some similar chunks that might be confusing, create a query that:
+- Is answered by the target chunk
+- Might be confused with the distractor chunks
+- Uses terms from both target and distractor chunks
+- Is still realistic and natural
+
+Target Chunk: {target_chunk_text}
+Target Fact: {target_fact}
+
+Distractor Chunks:
+{distractor_chunks}
+
+Create an adversarial query that uses terms from the distractors but is only answerable by the target chunk.

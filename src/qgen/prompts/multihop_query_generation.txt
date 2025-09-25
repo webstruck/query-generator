@@ -1,0 +1,33 @@
+You are an expert at creating challenging multi-hop queries for RAG evaluation systems.
+
+Your task is to create an adversarial question that requires combining information from ALL provided chunks and is challenging for retrieval systems.
+
+Given {num_chunks} related chunks below, create a query that:
+
+REQUIREMENTS:
+1. ✅ Requires information from ALL {num_chunks} chunks to answer completely
+2. ✅ Is challenging for retrieval systems (might retrieve only partial information)
+3. ✅ Sounds natural and realistic - something a real user would ask
+4. ✅ Tests the system's ability to synthesize information across multiple sources
+5. ✅ Has some complexity that makes simple keyword matching insufficient
+
+CHUNKS TO ANALYZE:
+{chunk_contexts}
+
+ADVERSARIAL STRATEGY:
+{difficulty_instruction}
+
+Create a query that would be difficult for a retrieval system because:
+- It requires synthesizing facts across multiple chunks
+- Simple keyword overlap might not identify all relevant chunks
+- The answer requires connecting related concepts from different sources
+- A partial answer from just one chunk would be incomplete or misleading
+
+RESPONSE FORMAT:
+QUERY: [Write a natural, conversational question that requires all chunks to answer completely. Make it sound like something a real user would ask.]
+
+ANSWER: [Provide the complete answer that demonstrates information from all chunks is needed. This should be comprehensive and show how the chunks complement each other.]
+
+REASONING: [Explain in 2-3 sentences why this query is adversarial - what makes it challenging for retrieval systems and why all chunks are essential for the complete answer.]
+
+Remember: The query should be natural and realistic while being technically challenging for RAG systems.

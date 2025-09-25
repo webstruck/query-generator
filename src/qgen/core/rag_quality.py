@@ -17,8 +17,9 @@ console = Console()
 class RAGQueryQualityFilter:
     """LLM-based quality filtering for RAG queries (web + CLI compatible)."""
     
-    def __init__(self, config: RAGConfig):
+    def __init__(self, config: RAGConfig, project_path: Optional[Path] = None):
         self.config = config
+        self.project_path = project_path
         self.structured_llm = StructuredLLMProvider(
             provider_name=config.llm_provider,
             **config.llm_params
@@ -26,14 +27,25 @@ class RAGQueryQualityFilter:
         self.prompt_template = self._load_prompt_template()
     
     def _load_prompt_template(self) -> str:
-        """Load realism scoring prompt template."""
-        template_path = Path(self.config.prompt_templates.get("realism_scoring", "prompts/realism_scoring.txt"))
+        """Load realism scoring prompt template, checking project folder first."""
+        template_path = self.config.prompt_templates.get("realism_scoring", "prompts/realism_scoring.txt")
         
-        if template_path.exists():
-            return template_path.read_text(encoding='utf-8')
-        else:
-            # Fallback to default prompt
-            return self._get_default_realism_prompt()
+        try:
+            # If we have a project path, check project-specific prompts first
+            if self.project_path:
+                project_template_path = self.project_path / template_path
+                if project_template_path.exists():
+                    return project_template_path.read_text(encoding='utf-8')
+            
+            # Check absolute/relative path
+            template_file = Path(template_path)
+            if template_file.exists():
+                return template_file.read_text(encoding='utf-8')
+        except Exception as e:
+            print(f"Warning: Could not load template {template_path}: {e}")
+        
+        # Fallback to default prompt
+        return self._get_default_realism_prompt()
     
     def _get_default_realism_prompt(self) -> str:
         """Default realism scoring prompt if template file not found."""

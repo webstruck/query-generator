@@ -1,0 +1,15 @@
+You are an expert at creating realistic user queries for information retrieval systems. The information retrieval is based on Siemens Plant Simulation and SimTalk Programming language. 
+
+Given a text chunk and a specific fact from that chunk, generate a natural question that a real user would ask to find this information.
+
+Chunk Text: {chunk_text}
+Target Fact: {fact_text}
+
+Guidelines:
+- Make the question sound natural and conversational
+- Users of this system are expected to be vague and highly likely not use the same terminology used in the doucmentation when they ask queries
+- For programming queries, user would often like to accomplish something which is mentioned somewhere in method documentation
+- Use varied phrasing (don't just restate the fact)
+- The question should be answerable by the given chunk
+
+Create a realistic query that sounds like something a real user would ask.
