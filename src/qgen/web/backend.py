@@ -807,22 +807,46 @@ async def approve_queries(project_name: str, query_ids: List[int]):
 async def export_data(project_name: str, format: str, stage: str = "approved"):
     """Export project data."""
     try:
-        from qgen.core.export import export_dataset
-        
+        from qgen.shared import UnifiedExporter
+        from qgen.core.data import get_data_manager
+
         project_path = get_project_path(project_name)
         if not project_path.exists():
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         if format not in ["csv", "json"]:
             raise HTTPException(status_code=400, detail="Unsupported format")
-        
-        # Export dataset
-        exported_path = export_dataset(str(project_path), format, None, stage)
-        
+
+        # Load queries using DataManager
+        data_manager = get_data_manager(str(project_path))
+        queries = data_manager.load_queries(stage)
+
+        if not queries:
+            raise HTTPException(status_code=404, detail=f"No {stage} queries found")
+
+        # Export using unified export system
+        exporter = UnifiedExporter()
+
+        # Generate output path
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"dataset_{stage}_{timestamp}.{format}"
+        exports_dir = project_path / "data" / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(exports_dir / filename)
+
+        # Export using unified system
+        result = exporter.export("dimension", queries, format, output_path)
+        exported_path = result.output_path
+
         return {
             "message": f"Exported to {exported_path}",
             "path": exported_path,
-            "format": format
+            "format": format,
+            "queries_count": len(queries),
+            "stats": result.stats,
+            "file_size_mb": result.file_size_mb,
+            "export_summary": exporter.generate_export_summary(result)
         }
         
     except Exception as e:
@@ -1645,16 +1669,30 @@ async def export_rag_queries(project_name: str, format: str, stage: str = "appro
         if not queries:
             raise HTTPException(status_code=404, detail=f"No {stage} queries found")
         
-        # Export using CLI functionality
-        from qgen.core.rag_export import RAGExporter
-        exporter = RAGExporter(str(project_path))
-        exported_path = exporter.export_queries(queries, format, stage)
+        # Export using unified export system
+        from qgen.shared import UnifiedExporter
+        exporter = UnifiedExporter()
+
+        # Generate output path
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"rag_queries_{stage}_{timestamp}.{format}"
+        exports_dir = project_path / "data" / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(exports_dir / filename)
+
+        # Export using unified system
+        result = exporter.export("rag", queries, format, output_path)
+        exported_path = result.output_path
         
         return {
             "message": f"Exported to {exported_path}",
             "path": exported_path,
             "format": format,
-            "queries_count": len(queries)
+            "queries_count": len(queries),
+            "stats": result.stats,
+            "file_size_mb": result.file_size_mb,
+            "export_summary": exporter.generate_export_summary(result)
         }
         
     except Exception as e:
